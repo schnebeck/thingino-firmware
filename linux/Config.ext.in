@@ -1,0 +1,8 @@
+# Must be in br2ext root
+
+config BR2_LINUX_KERNEL_EXT_THINGINO_KOPT
+	bool "Thingino Kernel Extensions"
+	help
+		Enable Thingino kernel extensions and customizations.
+		This will enable additional configuration options for
+		Thingino-supported hardware platforms.

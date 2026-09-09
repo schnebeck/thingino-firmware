@@ -1,0 +1,43 @@
+# IDE files
+/.idea
+/.vscode
+/.gitconfig
+/.settings
+
+# OS files
+.DS_Store
+*.backup
+*.log
+*~
+\#*#
+core
+core.*
+
+# Docker
+.bash_history
+.wget-hsts
+
+# Generated
+*.pyc
+*.pyo
+__pycache__/
+
+# Buildroot
+/.cache
+/.ccache
+/dl
+/host-shared
+/user
+/output
+/overrides
+/package/thingino-webui/files/var/www/onvif/*_files
+/package/thingino-webui/files/var/www/onvif/*_service
+/retired
+/sdk
+/tmp
+/toolchain
+/trash/*
+!/trash/README.md
+/local.mk
+/.prereqs.done
+/.selected_camera*

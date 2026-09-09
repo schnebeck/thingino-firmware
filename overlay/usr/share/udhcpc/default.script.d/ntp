@@ -1,0 +1,12 @@
+#!/bin/sh
+
+case "$1" in
+	bound | renew)
+		[ -n "$ntpsrv" ] && timectl set-ntp --source dhcp "$ntpsrv"
+		;;
+	rebound)
+		timectl sync
+		;;
+esac
+
+exit 0

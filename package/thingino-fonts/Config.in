@@ -1,0 +1,4 @@
+config BR2_PACKAGE_THINGINO_FONTS
+	bool "Thingino OSD fonts"
+	help
+	  OSD fonts for thingino

@@ -1,0 +1,56 @@
+#!/bin/sh
+# shellcheck disable=SC2068
+
+DAEMON="/usr/bin/lightnvr"
+DAEMON_ARGS=""
+PIDFILE="/var/run/lightnvr.pid"
+
+start_daemon() {
+	# LightNVR creates and locks its own PID file. Pre-creating it with -m makes
+	# the child mistake its own PID for an existing instance and signal itself.
+	start-stop-daemon -S -b -p "$PIDFILE" -x "$DAEMON" -- $@
+}
+
+stop_daemon() {
+	if [ -f "$PIDFILE" ]; then
+		start-stop-daemon -K -p "$PIDFILE" -x "$DAEMON"
+		status=$?
+		rm -f "$PIDFILE"
+		return $status
+	fi
+
+	start-stop-daemon -K -x "$DAEMON"
+}
+
+start() {
+	echo -c 15 "Starting LightNVR"
+
+	# shellcheck disable=SC2086
+	start_daemon $DAEMON_ARGS
+}
+
+stop() {
+	echo -c 15 "Stopping LightNVR"
+
+	stop_daemon
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart | reload)
+		stop || true
+		sleep 1
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart|reload}"
+		exit 1
+		;;
+esac
+
+exit 0

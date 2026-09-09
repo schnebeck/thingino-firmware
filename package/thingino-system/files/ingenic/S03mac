@@ -1,0 +1,46 @@
+#!/bin/sh
+# shellcheck disable=SC2004,SC2086,SC1091,SC2154
+
+CONFIG_JSON="/etc/thingino.json"
+
+command -v jct >/dev/null 2>&1 || exit 0
+
+# If eth.mac already set, nothing to do
+jct "$CONFIG_JSON" get eth.mac >/dev/null 2>&1 && exit 0
+
+# Shared serial -> MAC derivation (also used for the hostname suffix)
+. /etc/init.d/lib-serial-mac
+
+derive_serial_mac || exit 0
+
+eth_mac=$(printf "02:%02x:%02x:%02x:%02x:%02x" $m1 $m2 $m3 $m4 $m5)
+echo -c 240 -e "- Generated ETH MAC: $eth_mac"
+
+# Generate WLAN MAC = ETH MAC + 1 with carry
+w1=$m1
+w2=$m2
+w3=$m3
+w4=$m4
+w5=$(((m5 + 1) & 255))
+if [ "$w5" -eq 0 ]; then
+	w4=$(((m4 + 1) & 255))
+	if [ "$w4" -eq 0 ]; then
+		w3=$(((m3 + 1) & 255))
+		if [ "$w3" -eq 0 ]; then
+			w2=$(((m2 + 1) & 255))
+			if [ "$w2" -eq 0 ]; then
+				w1=$(((m1 + 1) & 255))
+			fi
+		fi
+	fi
+fi
+
+wlan_mac=$(printf "02:%02x:%02x:%02x:%02x:%02x" $w1 $w2 $w3 $w4 $w5)
+echo -c 240 -e "- Generated WLAN MAC: $wlan_mac"
+
+# Persist to thingino.json
+jct "$CONFIG_JSON" set eth.mac "$eth_mac"
+jct "$CONFIG_JSON" set wlan.mac "$wlan_mac"
+
+# Persist eth MAC to U-Boot environment for network operations (tftp, etc.)
+fw_setenv ethaddr "$eth_mac" 2>/dev/null

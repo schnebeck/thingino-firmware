@@ -1,0 +1,64 @@
+config BR2_PACKAGE_INGENIC_LIB
+	bool "ingenic-lib"
+	help
+	  Ingenic IMP platform libraries
+
+if BR2_PACKAGE_INGENIC_LIB
+
+config BR2_PACKAGE_INGENIC_LIB_LIBIMP
+	bool "libimp.so (core SDK)"
+	depends on !BR2_PACKAGE_OPENIMP
+	default y
+	select BR2_THINGINO_LIBSTDCPP if BR2_SOC_FAMILY = "t30" || BR2_SOC_FAMILY = "t32"
+	help
+	  Proprietary Ingenic IMP core library. Required by streamers when
+	  OpenIMP is not selected.
+	  Of the blob versions this package pins, T30's (SDK 1.0.5) and
+	  T32's (SDK 2.1.0.0) link libstdc++.so.6, so the C++ runtime is
+	  kept on target for those two; no per-device config is needed.
+	  Other families have libstdc++-linking builds too (T20 3.9.0,
+	  the T31 and T41 zeratul variants), but none of those are the
+	  pinned version.
+
+config BR2_PACKAGE_INGENIC_LIB_LIBALOG
+	bool "libalog.so (proprietary)"
+	depends on !BR2_PACKAGE_INGENIC_SYSTEM_LIBS_NEO_LIBALOG
+	default y
+	help
+	  Ingenic proprietary logging library.
+	  Overridden by ingenic-system-libs-neo libalog when selected.
+
+config BR2_PACKAGE_INGENIC_LIB_LIBSYSUTILS
+	bool "libsysutils.so (proprietary)"
+	depends on !BR2_SOC_FAMILY = "a1"
+	depends on !BR2_PACKAGE_INGENIC_SYSTEM_LIBS_NEO_LIBSYSUTILS
+	help
+	  Ingenic proprietary system utilities library (SU_* API).
+	  Select it for software that links the stock blob, such as TIMPS.
+	  Prefer the ingenic-system-libs-neo replacement when available.
+
+config BR2_PACKAGE_INGENIC_LIB_AUDIOPROCESS
+	bool "libaudioProcess.so (proprietary)"
+	depends on !BR2_PACKAGE_LIBAUDIOPROCESS_NEO
+	default y
+	select BR2_THINGINO_LIBSTDCPP
+	help
+	  Ingenic proprietary audio processing library.
+	  Overridden by libaudioprocess-neo when selected.
+	  Every family's stock blob links libstdc++.so.6, so selecting
+	  it keeps the C++ runtime on target; the libaudioprocess-neo
+	  replacement needs only libc.
+
+config BR2_PACKAGE_INGENIC_LIB_JZDL
+	bool "JZDL standalone inference (libjzdl.m.so — 609KB)"
+	help
+	  Standalone JZDL neural network inference library.
+	  Required for YOLOv5 and custom model detection.
+
+config BR2_PACKAGE_INGENIC_LIB_PERSONDET
+	bool "PersonDet IVS algorithm (libpersonDet_inf.so + libjzdl.so — 1.5MB)"
+	help
+	  Person detection via IVS pipeline using built-in model.
+	  No separate model file needed.
+
+endif

@@ -1,0 +1,86 @@
+#!/bin/sh
+# shellcheck disable=SC2018,SC2019,SC2086
+
+GPIO_FILE="/etc/gpio.conf"
+[ -f "$GPIO_FILE" ] || {
+	echo "GPIO configuration file not found: $GPIO_FILE" >&2
+	exit 1
+}
+
+# TODO: Set the maximum GPIO number by SOC model
+MAX_GPIO=192
+
+start() {
+	echo -c 15 "Setting GPIOs"
+
+	while IFS= read -r line; do
+		# Skip empty lines and comments
+		case "$line" in
+			'' | \#*) continue ;;
+		esac
+
+		# Extract fields and validate
+		set -- $line
+		gpionum=$1
+		action=$(echo "$2" | tr A-Z a-z)
+
+		if [ -z "$gpionum" ] || [ "$gpionum" -lt 0 ] || [ "$gpionum" -gt "$MAX_GPIO" ]; then
+			echo "Invalid GPIO number: $gpionum in line: $line" >&2
+			continue
+		fi
+
+		case "$action" in
+			high | low | input)
+				gpio "$action" "$gpionum"
+				echo "GPIO $gpionum set to $action"
+				[ -n "$3" ] && echo "Description: $3"
+				;;
+			drive)
+				level=$3
+				case "$level" in
+					'' | *[!0-9]*)
+						echo "Invalid drive level: '$level' in line: $line" >&2
+						continue
+						;;
+				esac
+				gpio-diag drive "$gpionum" "$level"
+				echo "GPIO $gpionum drive strength set to $level"
+				[ -n "$4" ] && echo "Description: $4"
+				;;
+			bias)
+				bias=$(echo "$3" | tr A-Z a-z)
+				case "$bias" in
+					up | down | none) ;;
+					*)
+						echo "Invalid bias: '$bias' in line: $line" >&2
+						continue
+						;;
+				esac
+				gpio-diag bias "$gpionum" "$bias"
+				echo "GPIO $gpionum bias set to $bias"
+				[ -n "$4" ] && echo "Description: $4"
+				;;
+			*)
+				echo "Invalid action: $action in line: $line" >&2
+				;;
+		esac
+	done <"$GPIO_FILE"
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		true
+		;;
+	restart)
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac
+
+exit 0

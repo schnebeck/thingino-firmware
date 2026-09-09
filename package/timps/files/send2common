@@ -1,0 +1,84 @@
+GARBAGE=""
+GARBAGE_FILE="$(mktemp "${TMPDIR:-/tmp}/send2_garbage.XXXXXX")" || {
+	echo "send2: unable to create garbage tracker" >&2
+	exit 1
+}
+export GARBAGE_FILE
+
+add_to_garbage() {
+	[ -n "$1" ] || return
+	GARBAGE="${GARBAGE:+$GARBAGE }$1"
+	[ -n "$GARBAGE_FILE" ] && printf '%s\n' "$1" >> "$GARBAGE_FILE"
+}
+
+_cleanup() {
+	if [ -n "$GARBAGE_FILE" ] && [ -f "$GARBAGE_FILE" ]; then
+		while IFS= read -r garbage_path; do
+			[ -n "$garbage_path" ] && rm -f -- "$garbage_path"
+		done < "$GARBAGE_FILE"
+		rm -f -- "$GARBAGE_FILE"
+	fi
+	GARBAGE=""
+}
+
+copy_photo() {
+	# Use existing photo from motion if available
+	if [ -n "$MOTION_PHOTO_FILE" ] && [ -f "$MOTION_PHOTO_FILE" ]; then
+		# Create atomically (mktemp, not "mktemp -u") so cp can't follow a symlink
+		# pre-planted at a predictable name in the sticky /tmp; pin to /tmp so a
+		# hostile TMPDIR can't redirect it.
+		local tmpfile
+		tmpfile="$(mktemp /tmp/send2_photo.XXXXXX)" || return
+		cp "$MOTION_PHOTO_FILE" "$tmpfile"
+		add_to_garbage "$tmpfile"
+		echo "$tmpfile"
+		return
+	fi
+
+	# Pull a still from timps's local HTTP server. Loopback connections skip
+	# auth (see httpd.c), so no token is needed here.
+	local tmpfile
+	tmpfile="$(mktemp /tmp/send2_photo.XXXXXX)" || return
+	curl --silent "http://127.0.0.1:8880/snapshot.jpg?chn=0" >"$tmpfile"
+	add_to_garbage "$tmpfile"
+	echo "$tmpfile"
+}
+
+copy_video() {
+	# Use existing video from motion if available
+	if [ -n "$MOTION_VIDEO_FILE" ] && [ -f "$MOTION_VIDEO_FILE" ]; then
+		# Create atomically (see copy_photo): cp target must not be a planted symlink.
+		local tmpfile
+		tmpfile="$(mktemp /tmp/send2_video.XXXXXX)" || return
+		cp "$MOTION_VIDEO_FILE" "$tmpfile"
+		add_to_garbage "$tmpfile"
+		echo "$tmpfile"
+		return
+	fi
+
+	# On-demand fMP4 clip via /control (record.clip). Loopback skips auth; the
+	# request blocks server-side until the file is written.
+	# Clip target must NOT pre-exist (O_EXCL); name only, pinned to /tmp.
+	local tmpfile
+	tmpfile="$(mktemp -u /tmp/send2_clip.XXXXXX)"
+	local duration=${SEND2_CLIP_SECS:-6}
+
+	port=$(sed -n 's/^[[:space:]]*http\.port[[:space:]]*=[[:space:]]*\([0-9]*\).*/\1/p' /etc/timps.conf 2>/dev/null | head -n1)
+	[ -n "$port" ] || port=8880
+	curl --silent --max-time 20 -X POST "http://127.0.0.1:$port/control" \
+		-d "{\"record\":{\"clip\":\"$tmpfile\",\"seconds\":$duration}}" >/dev/null 2>&1
+	if [ -s "$tmpfile" ]; then
+		add_to_garbage "$tmpfile"
+		echo "$tmpfile"
+		return 0
+	fi
+	echo "send2: timps clip capture failed" >&2
+	echo "$tmpfile"
+	return 1
+}
+
+get_value() {
+	jct "$config_file" get "$domain.$1" 2>/dev/null
+}
+
+trap _cleanup EXIT

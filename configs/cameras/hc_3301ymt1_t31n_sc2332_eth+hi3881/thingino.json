@@ -1,0 +1,37 @@
+{
+  "gpio": {
+    "button_reset": 6,
+    "ir850": {
+      "pin": 50,
+      "active_low": true
+    },
+    "ircut": "63 64",
+    "speaker": 14,
+    "white": {
+      "pin": 49,
+      "active_low": true
+    }
+  },
+  "motors": {
+    "gpio_invert": false,
+    "gpio_pan": "57 58 61 62",
+    "gpio_switch": -1,
+    "gpio_tilt": "53 52 54 51",
+    "homing": true,
+    "invert_x": false,
+    "invert_y": false,
+    "is_spi": false,
+    "presets": [
+      {
+        "id": 0,
+        "x": 500,
+        "y": 550,
+        "description": "Home"
+      }
+    ],
+    "speed_pan": 200,
+    "speed_tilt": 200,
+    "steps_pan": 1000,
+    "steps_tilt": 1100
+  }
+}

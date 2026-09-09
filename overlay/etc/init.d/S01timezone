@@ -1,0 +1,29 @@
+#!/bin/sh
+
+start() {
+	echo -c 15 "Setting timezone"
+
+	name=$(cat /etc/timezone 2>/dev/null)
+	[ -n "$name" ] || name="Etc/GMT"
+	echo -c 240 -e "- Timezone name: $name"
+
+	timectl refresh
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		true
+		;;
+	restart)
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac
+
+exit 0

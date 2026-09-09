@@ -1,0 +1,513 @@
+#!/bin/sh
+
+DAEMON_SHORT="wpa_supplicant"
+DAEMON_FULL="/usr/sbin/wpa_supplicant"
+
+iface_exists() {
+	iface="$1"
+
+	if [ -z "$iface" ]; then
+		echo "Interface parameter missing." >&2
+		return 1
+	fi
+
+	if ip link show "$iface" >/dev/null 2>&1; then
+		echo "Interface '$iface' exists."
+		return 0
+	else
+		echo "Interface '$iface' does not exist."
+		return 1
+	fi
+}
+
+ts() {
+	date -u +"%F %T"
+}
+
+STA_IFACE=@WLAN_STA_NETDEV@
+AP_IFACE=@WLAN_AP_NETDEV@
+WLAN_MODULE_NAME="@WLAN_MODULE_NAME@"
+
+CONFIG="/etc/$DAEMON_SHORT.conf"
+PORTAL_CONF="/run/$DAEMON_SHORT.portal.conf"
+
+PORTAL_MODE_FLAG="/run/portal_mode"
+PORTAL_PENDING_FLAG="/run/portal_pending"
+PORTAL_CNET=172.16.0
+PORTAL_IP=${PORTAL_CNET}.1
+
+WLANAP_MODE_FLAG="/run/wlan_ap_mode"
+WLANAP_CNET=100.64.1
+WLANAP_IP=${WLANAP_CNET}.1
+
+hostname=$(hostname)
+
+# Determine the wireless mode
+if ! grep -q 'ssid=' $CONFIG >/dev/null; then
+	echo "WiFi network missing" >&2
+	mode="portal"
+elif ! grep -q 'psk=' $CONFIG >/dev/null; then
+	echo "WiFi password missing" >&2
+	mode="portal"
+elif grep -q 'mode=2' $CONFIG >/dev/null; then
+	mode="ap"
+else
+	mode="client"
+fi
+
+case "$mode" in
+	portal | ap)
+		IFACE="$AP_IFACE"
+		WLAN_INT_FILE="/etc/network/interfaces.d/$STA_IFACE"
+		;;
+	*)
+		IFACE="$STA_IFACE"
+		WLAN_INT_FILE="/etc/network/interfaces.d/$STA_IFACE"
+		;;
+esac
+
+PIDFILE="/run/$DAEMON_SHORT.$IFACE.pid"
+DAEMON_ARGS="-i $IFACE -P $PIDFILE -B"
+case "$WLAN_MODULE_NAME" in
+	atbm6461*)
+		DAEMON_ARGS="-D wext $DAEMON_ARGS"
+		;;
+esac
+if [ "true" = "${debug:-}" ]; then
+	DAEMON_ARGS="$DAEMON_ARGS -dd"
+fi
+
+credentials_from_card() {
+	# shellcheck disable=SC3043 # busybox ash supports local
+	local envfile ssid password
+
+	envfile="/mnt/mmcblk0p1/uenv.txt"
+	[ -f $envfile ] || return 0
+
+	ssid="$(grep '^wlan_ssid=' $envfile | cut -d= -f2-)"
+	password="$(grep '^wlan_pass=' $envfile | cut -d= -f2-)"
+	wlan configure "$ssid" "$password"
+}
+
+timeout() {
+	sleep 600 &&
+		play /usr/share/sounds/configurationportalisdown.@SOUND_EXT@ &&
+		$0 stop
+}
+
+# Survey the radio in plain station mode, before the portal AP goes up.
+# The phone is not yet associated, so the sweep cannot drop the client
+# connection, and drivers do not need to support survey-while-AP
+# (which most vendor drivers reject or return empty on).
+prescan_for_portal() {
+	# Hard overall deadline so a misbehaving radio cannot stretch portal
+	# boot indefinitely: everything below is capped by PRESCAN_DEADLINE
+	# seconds from now (healthy path finishes in well under 10).
+	PRESCAN_DEADLINE=$(($(date +%s) + 25))
+	time_left() { [ "$(date +%s)" -lt "$PRESCAN_DEADLINE" ]; }
+
+	# ATBM6461 WiFi lives on the MCU; there is no wpa_supplicant to drive
+	case "$WLAN_MODULE_NAME" in
+		atbm6461*) return 0 ;;
+	esac
+
+	command -v wpa_supplicant >/dev/null 2>&1 || return 0
+	command -v wpa_cli >/dev/null 2>&1 || return 0
+
+	CACHE="/tmp/wifi_prescan"
+	CTRLDIR="/tmp/wpa_prescan"
+	CONF="/tmp/wpa_prescan.conf"
+
+	echo "Running pre-portal Wi-Fi scan"
+	ip link set $IFACE up
+
+	# Standalone supplicant with a private ctrl socket, so we never
+	# touch the shared /run/wpa_supplicant the portal instance uses.
+	echo "ctrl_interface=$CTRLDIR" >"$CONF"
+	wpa_supplicant -i $IFACE -c "$CONF" -B >/dev/null 2>&1
+
+	# Wait for the ctrl socket to appear (supplicant failed to start -> bail)
+	i=0
+	while [ $i -lt 5 ]; do
+		[ -S "$CTRLDIR/$IFACE" ] && break
+		sleep 1
+		i=$((i + 1))
+	done
+	if [ ! -S "$CTRLDIR/$IFACE" ]; then
+		echo "Prescan supplicant did not start; skipping" >&2
+		rm -f "$CONF"
+		return 0
+	fi
+
+	# Give the radio a moment to settle after module load
+	sleep 2
+
+	# One scan attempt: fire the scan, then poll scan_results (read-only)
+	# until the BSS list has entries. Polling results instead of firing
+	# more scans avoids queueing phantom scans, and the first sweep only
+	# shows up in scan_results once it has actually completed.
+	scan_once() {
+		# shellcheck disable=SC3043 # busybox ash supports local
+		local i
+
+		# Trigger; retry while the supplicant is still settling.
+		# wpa_cli exits 0 even on a FAIL reply, so this loop is rarely
+		# more than a single iteration - two retries then give up.
+		i=0
+		while [ $i -lt 3 ] && time_left; do
+			wpa_cli -p "$CTRLDIR" -i "$IFACE" scan >/dev/null 2>&1 && break
+			sleep 1
+			i=$((i + 1))
+		done
+
+		# Poll for results: empty BSS list means the sweep is still
+		# running (or found nothing; the caller retries once, then
+		# gives up and we simply continue without a cached list)
+		i=0
+		while [ $i -lt 15 ] && time_left; do
+			wpa_cli -p "$CTRLDIR" -i "$IFACE" scan_results 2>/dev/null >"$CACHE.tmp"
+			# Count real entry lines (banner + column header stripped)
+			[ "$(grep -v '^Selected interface' "$CACHE.tmp" 2>/dev/null | tail -n +2 | grep -c .)" -gt 0 ] && return 0
+			sleep 1
+			i=$((i + 1))
+		done
+		return 1
+	}
+
+	# Two attempts total; radio right after boot can be flaky.
+	# The second attempt only runs while the overall deadline allows.
+	if scan_once || { time_left && scan_once; }; then
+		mv "$CACHE.tmp" "$CACHE"
+		echo "Prescan complete: $(grep -v '^Selected interface' "$CACHE" | tail -n +2 | grep -c .) entries"
+	else
+		rm -f "$CACHE.tmp"
+		echo "Prescan returned no results; continuing without cached list" >&2
+	fi
+
+	# Always tear down the scan supplicant before the portal starts
+	wpa_cli -p "$CTRLDIR" terminate >/dev/null 2>&1
+	i=0
+	while [ $i -lt 5 ] && pgrep -f "wpa_supplicant.*$CONF" >/dev/null 2>&1; do
+		sleep 1
+		i=$((i + 1))
+	done
+	rm -rf "$CTRLDIR" "$CONF"
+}
+
+start_web_server() {
+	for init in /etc/init.d/S60uhttpd /etc/init.d/S90httpd; do
+		[ -x "$init" ] || continue
+		"$init" restart
+		return
+	done
+}
+
+prepare_portal() {
+	# FIXME: should de done at compile time
+	sed -i "s/%dev%/$IFACE/g" /etc/udhcpd-portal.conf
+
+	echo "Prepare Captive Portal"
+
+	echo "Create DHCP leases database"
+	touch /run/udhcpd.leases
+
+	echo "Assign ${PORTAL_IP} to $IFACE"
+	ip address add ${PORTAL_IP}/24 dev $IFACE
+
+	echo "Bring $IFACE interface up"
+	ip link set $IFACE up
+
+	echo "Add route ${PORTAL_CNET}.0/24 to $IFACE"
+	ip route replace ${PORTAL_CNET}.0/24 dev $IFACE
+
+	# Generate portal AP config in tmpfs so the transient portal settings
+	# (SSID suffix, optional PSK) never overwrite the persistent config.
+	# That keeps an unconfigured camera re-entering portal mode on boot.
+	echo "Update SSID with last two octets of MAC address"
+	mac_address=$(ip link show $IFACE | awk '/ether/ {print $2}')
+	last_two=$(echo "$mac_address" | awk -F: '{print $(NF-1) $NF}')
+	cat >$PORTAL_CONF <<-WPAEOF
+		ctrl_interface=/run/wpa_supplicant
+		ap_scan=2
+
+		network={
+			ssid="THINGINO-${last_two}"
+			mode=2
+			frequency=2412
+			key_mgmt=@WLAN_PORTAL_KEY_MGMT@
+			@WLAN_PORTAL_PSK_LINE@
+		}
+	WPAEOF
+
+	echo "Start wpa_supplicant"
+	# shellcheck disable=SC2086 # DAEMON_ARGS holds flags that must word-split
+	start-stop-daemon -S -x $DAEMON_FULL -- $DAEMON_ARGS -c "$PORTAL_CONF" 2>&1
+
+	echo "Set $PORTAL_MODE_FLAG"
+	touch "$PORTAL_MODE_FLAG"
+	rm -f "$PORTAL_PENDING_FLAG"
+	echo "Start web server on the portal interface"
+	start_web_server
+
+	echo "Portal prepared at $(ts)"
+}
+
+ap_is_up() {
+	[ "$(wpa_cli -p /run/wpa_supplicant -i "$IFACE" status 2>/dev/null | sed -n 's/^wpa_state=//p')" = "COMPLETED" ]
+}
+
+finish_portal() {
+	i=0
+	while [ $i -lt 10 ] && ! ap_is_up; do
+		sleep 1
+		i=$((i + 1))
+	done
+	if ! ap_is_up; then
+		echo "ERROR: portal AP is not up; not starting DHCP/DNS" >&2
+		play /usr/share/sounds/configurationportalisdown.@SOUND_EXT@ 2>/dev/null
+		return 1
+	fi
+
+	echo "Start DHCP server"
+	start-stop-daemon -S -x /sbin/udhcpd -- -S -I $PORTAL_IP /etc/udhcpd-portal.conf
+
+	echo "Start DNS server"
+	start-stop-daemon -S -x /sbin/dnsd -- -i $PORTAL_IP -c /etc/dnsd-portal.conf -d
+
+	echo "Portal started at $(ts)"
+	play /usr/share/sounds/configurationportalisup.@SOUND_EXT@
+
+	echo "Start timeout countdown"
+	timeout &
+}
+
+stop_portal() {
+	echo -c 15 "Captive Portal"
+
+	rm -f "$PORTAL_PENDING_FLAG"
+	if [ ! -f "$PORTAL_MODE_FLAG" ]; then
+		echo "Portal was pending, nothing to stop"
+		ip link set $IFACE down 2>/dev/null
+		return
+	fi
+
+	echo "Stop udhcp"
+	start-stop-daemon -K -q -x /sbin/udhcpd
+
+	echo "Stop dnsd"
+	start-stop-daemon -K -q -x /sbin/dnsd
+
+	echo "Stop wpa_supplicant"
+	start-stop-daemon -K -q -x $DAEMON_FULL
+
+	echo "Remove route ${PORTAL_CNET}.0/24 from $IFACE"
+	ip route delete ${PORTAL_CNET}.0/24 dev $IFACE
+
+	echo "Remove IP address from $IFACE"
+	ip address delete dev $IFACE ${PORTAL_IP}/24
+
+	echo "Bring down $IFACE"
+	ip link set $IFACE down
+
+	echo "Remove $PORTAL_MODE_FLAG"
+	rm -f "$PORTAL_MODE_FLAG"
+
+	echo "Portal stopped at $(ts)"
+}
+
+start_access_point() {
+	# Define in the global scope (populated at build time)
+	sed -i "s/%dev%/$IFACE/g" /etc/udhcpd-ap.conf
+
+	echo -c 15 "WLAN Access Point"
+
+	echo "Create DHCP leases database"
+	touch /run/udhcpd_ap.leases
+
+	echo "Set WLAN AP resolver configuration"
+	cp /etc/resolv-ap.conf /tmp/resolv.conf
+
+	echo "Bring $IFACE up"
+	ip link set $IFACE up
+
+	echo "Add IP address ${WLANAP_IP}/24 to $IFACE"
+	ip address add ${WLANAP_IP}/24 dev $IFACE
+
+	echo "Add route ${WLANAP_CNET}.0/24 to $IFACE"
+	ip route replace ${WLANAP_CNET}.0/24 dev $IFACE
+
+	echo "Set WLAN AP DNS configuration"
+	cp /etc/dnsd-ap.conf /tmp/dnsd.conf
+	if ! grep -q "$hostname" /tmp/dnsd.conf; then
+		echo "Add ${hostname}.local to DNS configuration"
+		echo "${hostname}.local $WLANAP_IP" >>/tmp/dnsd.conf
+	fi
+
+	echo "Start wpa_supplicant"
+	# shellcheck disable=SC2086 # DAEMON_ARGS holds flags that must word-split
+	start-stop-daemon -S -x $DAEMON_FULL -- $DAEMON_ARGS -c "$CONFIG" 2>&1
+
+	echo "Start udhcpd"
+	start-stop-daemon -S -x /sbin/udhcpd -- -S -I $WLANAP_IP /etc/udhcpd-ap.conf
+
+	echo "Start dnsd"
+	start-stop-daemon -S -x /sbin/dnsd -- -i $WLANAP_IP -c /tmp/dnsd.conf -d
+
+	echo "WLAN Access Point started"
+	touch "$WLANAP_MODE_FLAG"
+}
+
+stop_access_point() {
+	echo -c 15 "WLAN Access Point"
+
+	echo "Stop udhcpd"
+	start-stop-daemon -K -q -x /sbin/udhcpd
+
+	echo "Stop dnsd"
+	start-stop-daemon -K -q -x /sbin/dnsd
+
+	echo "Stop wpa_supplicant"
+	start-stop-daemon -K -q -x $DAEMON_FULL
+
+	echo "Remove IP address from $IFACE"
+	ip address delete dev $IFACE ${WLANAP_IP}/24
+
+	echo "Bring down $IFACE"
+	ip link set $IFACE down
+
+	echo "WLAN Access Point stopped"
+	rm -f "$WLANAP_MODE_FLAG"
+}
+
+start_client() {
+	echo "Start wpa_supplicant"
+	# shellcheck disable=SC2086 # DAEMON_ARGS holds flags that must word-split
+	start-stop-daemon -S -x $DAEMON_FULL -- $DAEMON_ARGS -c "$CONFIG" 2>&1
+}
+
+stop_client() {
+	echo "Stop wpa_supplicant"
+	start-stop-daemon -K -q -x $DAEMON_FULL
+	if [ -f /var/run/udhcpc.${IFACE}.pid ]; then
+		kill "$(cat /var/run/udhcpc.${IFACE}.pid)" 2>/dev/null
+		sleep 1
+	fi
+	ip addr flush dev $IFACE 2>/dev/null
+}
+
+start() {
+	# Credential from SD card
+	credentials_from_card
+
+	echo -c 15 "Starting WPA Supplicant"
+
+	# Interface is not present
+	if iface_exists "$IFACE"; then
+		echo "Found $IFACE interface"
+	else
+		echo "Wireless interface $IFACE not found" >&2
+		exit 1
+	fi
+
+	# Interface is present but disabled
+	if grep -q "^#auto $IFACE" $WLAN_INT_FILE; then
+		echo "$IFACE manually disabled" >&2
+		exit 1
+	else
+		echo "$IFACE is enabled"
+	fi
+
+	echo "Starting in $mode mode"
+
+	# ATBM6461: use mcu_test instead of wpa_supplicant for client mode
+	case "$WLAN_MODULE_NAME" in
+		atbm6461*)
+			if [ "$mode" = "client" ]; then
+				wifi_ssid=$(grep 'ssid=' $CONFIG | head -1 | sed 's/.*ssid="\([^"]*\)".*/\1/')
+				wifi_pass=$(grep 'psk=' $CONFIG | head -1 | sed 's/.*psk="\([^"]*\)".*/\1/')
+				if [ -n "$wifi_ssid" ] && [ -n "$wifi_pass" ]; then
+					if ! command -v mcu_test >/dev/null 2>&1; then
+						echo "mcu_test not found; ATBM6461 client connection cannot start" >&2
+						exit 1
+					fi
+					echo "Bring $IFACE up"
+					ip link set $IFACE up
+					echo "Waiting for SDIO link to stabilize..."
+					sleep 3
+					echo "Connecting via mcu_test: $wifi_ssid"
+					if ! mcu_test --wifi_connect="${wifi_ssid}:${wifi_pass}"; then
+						echo "WARNING: mcu_test WiFi command failed"
+					fi
+					echo "Waiting for MCU WiFi connection..."
+					i=0
+					hex_ip=""
+					while [ "$i" -lt 30 ]; do
+						hex_ip=$(dmesg | grep 'hostevent.*ipaddr' | tail -1 | sed 's/.*ipaddr \([0-9a-f]*\).*/\1/')
+						[ -n "$hex_ip" ] && break
+						i=$((i + 1))
+						sleep 1
+					done
+					if [ -n "$hex_ip" ] && [ "${#hex_ip}" -eq 8 ] && [ "$hex_ip" != "00000000" ]; then
+						ip_addr=$(printf '%d.%d.%d.%d' "0x$(echo "$hex_ip" | cut -c7-8)" "0x$(echo "$hex_ip" | cut -c5-6)" "0x$(echo "$hex_ip" | cut -c3-4)" "0x$(echo "$hex_ip" | cut -c1-2)")
+						gateway=$(echo "$ip_addr" | sed 's/\.[0-9]*$/.1/')
+						echo "MCU DHCP IP: $ip_addr"
+						ip addr add "${ip_addr}/24" dev "$IFACE" 2>/dev/null || true
+						ip route add default via "$gateway" dev "$IFACE" 2>/dev/null || true
+						echo "nameserver $gateway" >/tmp/resolv.conf
+						sed -i 's/iface wlan0 inet dhcp/iface wlan0 inet manual/' /etc/network/interfaces.d/wlan0
+					else
+						echo "WARNING: Could not get IP from MCU DHCP"
+						ip link show $IFACE
+						iwconfig $IFACE 2>/dev/null || true
+					fi
+				else
+					echo "Missing SSID or password for mcu_test"
+				fi
+				exit 0
+			fi
+			;;
+	esac
+
+	case "$mode" in
+		portal)
+			echo "Portal deferred pending wired uplink check"
+			touch "$PORTAL_PENDING_FLAG"
+			;;
+		ap) start_access_point ;;
+		*) start_client ;;
+	esac
+}
+
+stop() {
+	echo -c 15 "Stopping WPA Supplicant"
+
+	case "$mode" in
+		portal) stop_portal ;;
+		ap) stop_access_point ;;
+		*) stop_client ;;
+	esac
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		stop
+		start
+		;;
+	portal_confirmed)
+		prescan_for_portal
+		prepare_portal
+		finish_portal
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}" >&2
+		exit 1
+		;;
+esac
+
+exit 0

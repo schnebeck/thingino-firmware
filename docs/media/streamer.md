@@ -1,0 +1,160 @@
+Streamer
+========
+
+Video Privacy FIFO
+-------------------
+
+Prudynt now exposes `/run/prudynt/video_ctrl` for coarse privacy control. Each
+newline-delimited command toggles a full-frame OSD cover on one of the encoder
+channels, forcing RTSP, MP4 recordings, and JPEG taps to see a solid black
+stream while the ISP and exposure pipelines keep running.
+
+```
+printf 'PRIVACY ch=0 value=on\n' > /run/prudynt/video_ctrl
+printf 'PRIVACY ch=0 value=off\n' > /run/prudynt/video_ctrl
+```
+
+- `ch=` selects the encoder. Omitting it (or using `ch=all`) toggles every encoder; set `ch=0`, `ch=1`, etc. to target a single stream.
+- `value=`/`state=` accepts `on|off`, `true|false`, or `1|0`.
+- Commands are idempotent; repeating the same state is a no-op.
+- When the worker is not yet running the request is latched and applied as
+	soon as the stream boots.
+
+Internally the privacy state uses a hardware OSD cover layer, so frame cadence
+and timestamps remain monotonic and decoders see legal access units (bitrates
+typically collapse to a few hundred bits/s while muted).
+
+### Privacy persistence
+
+Privacy state survives reboots via two keys under the top-level `privacy`
+section of `prudynt.json`:
+
+```json
+"privacy": {
+    "enabled": true,
+    "save_state": true
+}
+```
+
+- `privacy.enabled` (bool, default `false`): engage the privacy OSD cover on
+  startup, before RTSP goes live. Set to `true` to lock the camera into
+  privacy mode across restarts.
+- `privacy.save_state` (bool, default `false`): when `true`, runtime privacy
+  toggles (via the FIFO or JSON API) are persisted to `privacy.enabled` so
+  the current state is restored on the next boot. When `false` (default),
+  toggles are live-only and do not change the stored config.
+
+### Privacy indicator overlay
+
+While privacy is active, the OSD automatically appends "PRIVACY" to each
+stream's timestamp line so viewers see an explicit marker instead of a plain
+black feed. No configuration is required — it rides on top of the cover and
+toggles in lock-step with the PRIVACY FIFO command.
+
+Each standard overlay (time, uptime, user text, brightness, logo) is now
+grouped beneath `streamX.osd.<element>` with shared keys like `enabled`,
+`format`, `position`, `rotation`, and the per-element font colors. Existing
+flat keys continue to function, but saving the config emits the structured form
+so it's easy to copy a whole block or keep overrides scoped to a single item.
+
+Manual rate-control overrides
+-----------------------------
+
+Advanced encoders (T31/T40/T41/C100 families and legacy T2x/T30) accept custom
+quantizer and bitrate limits via `prudynt.json`. Set the new keys under each
+`streamX` block to gently steer IMP's RC logic without recompiling firmware:
+
+```
+"stream0": {
+	"mode": "VBR",
+	"qp_init": 30,
+	"qp_min": 28,
+	"qp_max": 45,
+	"ip_delta": -2,
+	"pb_delta": -1,
+	"max_bitrate": 4200000
+}
+```
+
+- `qp_init` seeds the first GOP; `qp_min`/`qp_max` clamp RC swing. Use `-1` to
+	defer to the SDK defaults (same as leaving the key out).
+- `ip_delta` and `pb_delta` bias P/B frames relative to I frames on platforms
+	that expose IMP's delta knobs. Keep them between `-20..20`, or `-1` for the
+	vendor default.
+- `max_bitrate` caps the encoder in `VBR`, `CAPPED_VBR`, or `CAPPED_QUALITY`
+	modes. Set `0` (default) to make IMP compute the ceiling from `bitrate`.
+
+The overrides are optional; HAL simply skips any field that stays at the
+default sentinel value. This makes it safe to stage changes on one stream at a
+time or ship a universal config that works across SoC families.
+
+OSD
+---
+
+### Creating a logo image
+
+It's probably best to make the logo transparent, so the source image
+should have an alpha channel. Then, the image should be in PNG format.
+
+```
+convert logo-100x30-alpha.png -depth 8 bgra:logo.bgra
+```
+
+### Viewing a logo image
+
+You'll need to know the dimensions of the image to open the logo file.
+You can view it using the `display` tool from `ImageMagick`.
+
+```
+display -depth 8 -size 100x30 logo.rgba
+```
+If you're not sure about the actual image dimensions, you can try
+estimating them based on the file size using this formula:
+
+`width * height = file size / 4`.
+
+###
+```
+curl -v -X DESCRIBE rtsp://thingino:thingino@192.168.1.10:554/ch1
+```
+
+### Saving RTSP stream to file
+
+```
+ffmpeg -i rtsp://thingino:thingino@192.168.1.10:554/ch1 -map 0 -c copy -f mpegts record.ts
+```
+
+### Reading metadata from a saved RTSP stream
+
+```
+ffmpeg -i record.ts -map 0:2 -c copy -f data data.txt
+```
+
+### Checking the stream for latency
+
+Low-latency RTSP mode is a feature of mpv that reduces latency by disabling
+features that increase latency.
+
+To configure `mpv` for low-latency RTSP mode, use with the following command:
+
+```
+mpv rtsp://thingino:thingino@192.168.1.10:554/ch0 --profile=low-latency --no-cache --cache-secs=0 --demuxer-readahead-secs=0 --cache-pause=no
+```
+
+Adding `--untimed` will disable synchronization to play the video feed as fast
+as possible but could break audio, while `--no-correct-pts` will use fixed
+timesteps and seems to break audio.
+
+RTSP timestamp fixes
+--------------------
+
+Prudynt sends an RTCP Sender Report before any RTP media packets so
+receivers can compute PTS from the very first frame.  For UDP transport
+the SR is burst 3 times with a 5 ms gap to compensate for the lack of
+ordering between the RTCP and RTP sockets.  An additional 1 ms guard
+band on the audio anchor prevents backward DTS jumps at session start.
+
+This eliminates ``Non-monotonic DTS`` and ``Timestamps are unset in a
+packet`` warnings when recording with FFmpeg.
+
+.. _rfc7826: https://www.rfc-editor.org/rfc/rfc7826

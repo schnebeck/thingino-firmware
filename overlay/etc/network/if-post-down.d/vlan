@@ -1,0 +1,15 @@
+#!/bin/sh
+# shellcheck disable=SC2086,SC2143
+
+if [ ! -x /sbin/vconfig ]; then
+	echo -c 160 -e "No VLAN support" >&2
+	exit 0
+fi
+
+if [ -z "$IF_VLAN_RAW_DEVICE" ] && [ -z "$(echo $IFACE | grep '.\+\.[0-9]\+$')" ]; then
+	echo -c 160 -e "No VLAN on $IFACE" >&2
+	exit 0
+fi
+
+echo -c 240 -e "- Removing VLAN from $IFACE"
+vconfig rem $IFACE
