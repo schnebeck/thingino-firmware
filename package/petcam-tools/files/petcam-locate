@@ -62,7 +62,7 @@ fi
 
 payload="{\"wifiAccessPoints\":[$aps]}"
 
-response=$(printf '%s' "$payload" | dbclient -y -i "$KEY" "$REMOTE" locate 2>/dev/null)
+response=$(printf '%s' "$payload" | dbclient -y -o BatchMode=yes -i "$KEY" "$REMOTE" locate 2>/dev/null)
 if [ -z "$response" ]; then
 	echo "petcam-locate: no response from location helper" >&2
 	exit 1

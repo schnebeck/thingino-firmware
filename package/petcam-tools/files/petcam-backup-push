@@ -26,17 +26,41 @@ LOCAL_FILE="$1"
 CATEGORY="$2"
 
 REMOTE=$(jct /etc/thingino.json get vpn_helper.remote 2>/dev/null || true)
-[ -n "$REMOTE" ] && [ "$REMOTE" != "null" ] || { echo "petcam-backup-push: vpn_helper.remote not configured" >&2; exit 1; }
+# shellcheck disable=SC2015
+# Both sides here are plain tests with no side effects, so A&&B||C is safe.
+[ -n "$REMOTE" ] && [ "$REMOTE" != "null" ] || {
+	echo "petcam-backup-push: vpn_helper.remote not configured" >&2
+	exit 1
+}
 
 case "$CATEGORY" in
 	clips | sounds | emergency) ;;
-	*) echo "petcam-backup-push: invalid category $CATEGORY" >&2; exit 1 ;;
+	*)
+		echo "petcam-backup-push: invalid category $CATEGORY" >&2
+		exit 1
+		;;
 esac
 
 [ -f "$KEY" ] || dropbearkey -t ed25519 -f "$KEY" >/dev/null 2>&1
-[ -s "$LOCAL_FILE" ] || { echo "petcam-backup-push: $LOCAL_FILE missing/empty" >&2; exit 1; }
+[ -s "$LOCAL_FILE" ] || {
+	echo "petcam-backup-push: $LOCAL_FILE missing/empty" >&2
+	exit 1
+}
 
 remote_name="${3:-$(basename "$LOCAL_FILE")}"
 remote_name=$(printf '%s' "$remote_name" | tr '/' '_')
 
-dbclient -y -i "$KEY" "$REMOTE" "$CATEGORY/$remote_name" < "$LOCAL_FILE" 2>/dev/null
+# -o BatchMode=yes matters here, not just as a style choice: without it, a
+# rejected key makes dbclient fall back to interactive password prompting,
+# and on this dropbear version that fallback-then-server-disconnect path
+# returns exit 0 - "success" - even though nothing was transferred. Found
+# by testing this exact command against a stale/unregistered key.
+# BatchMode disables that fallback so a rejected key fails immediately
+# with a real nonzero exit.
+errfile=$(mktemp)
+if ! dbclient -y -o BatchMode=yes -i "$KEY" "$REMOTE" "$CATEGORY/$remote_name" <"$LOCAL_FILE" 2>"$errfile"; then
+	echo "petcam-backup-push: transfer failed: $(cat "$errfile")" >&2
+	rm -f "$errfile"
+	exit 1
+fi
+rm -f "$errfile"

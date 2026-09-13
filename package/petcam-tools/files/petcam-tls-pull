@@ -39,11 +39,13 @@ log() { logger -t petcam-tls-pull "$1"; }
 TMPDIR=$(mktemp -d) || exit 1
 trap 'rm -rf "$TMPDIR"' EXIT
 
-if ! dbclient -y -i "$KEY" "$REMOTE" pull 2>/dev/null | tar -xf - -C "$TMPDIR" 2>/dev/null; then
+if ! dbclient -y -o BatchMode=yes -i "$KEY" "$REMOTE" pull 2>/dev/null | tar -xf - -C "$TMPDIR" 2>/dev/null; then
 	log "pull failed - VPN down or server unreachable"
 	exit 1
 fi
 
+# shellcheck disable=SC2015
+# Both sides here are plain tests with no side effects, so A&&B||C is safe.
 [ -s "$TMPDIR/fullchain.pem" ] && [ -s "$TMPDIR/privkey.pem" ] || {
 	log "pull returned empty/missing files, ignoring"
 	exit 1
