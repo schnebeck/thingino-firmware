@@ -1,5 +1,5 @@
 #!/bin/sh
-# raptor-audio-alarm — audio-alarm daemon -> send2 bridge, mirrors
+# raptor-audio-alarm - audio-alarm daemon -> send2 bridge, mirrors
 # package/thingino-raptor/files/raptor-motion. Unlike motion's fixed-length
 # clip, recording length here is decided by the daemon itself (it extends
 # g_recording_until_ms per additional trigger) - this script only reacts to

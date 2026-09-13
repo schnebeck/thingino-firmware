@@ -1,5 +1,5 @@
 #!/bin/sh
-# S32raptor-motion — start/stop the RMD -> send2 motion watcher
+# S32raptor-motion - start/stop the RMD -> send2 motion watcher
 
 DAEMON=/usr/sbin/raptor-motion-watch
 PIDFILE=/run/raptor-motion-watch.pid

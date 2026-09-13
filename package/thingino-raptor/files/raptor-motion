@@ -1,5 +1,5 @@
 #!/bin/sh
-# raptor-motion — motion -> send2 bridge for the Raptor streamer.
+# raptor-motion - motion -> send2 bridge for the Raptor streamer.
 #
 # Invoked by raptor-motion-watch on RMD idle->active (and active->idle for stop).
 # Mirrors prudynt's /usr/sbin/motion and timps's /usr/sbin/timps-motion:

@@ -1,4 +1,4 @@
-# cfg-backup.list — files and directories to preserve across firmware upgrades.
+# cfg-backup.list - files and directories to preserve across firmware upgrades.
 # Lines starting with # are ignored.  Paths are relative to /.
 # The list itself is always included in the backup.
 

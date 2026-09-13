@@ -1,5 +1,5 @@
 #!/bin/sh
-# raptor-motion-watch — poll RMD and fire /usr/sbin/raptor-motion on edges.
+# raptor-motion-watch - poll RMD and fire /usr/sbin/raptor-motion on edges.
 #
 # Raptor RMD has no on_motion script hook (unlike timps/prudynt). This watcher
 # bridges that gap so send2 alerts work without requiring an agent SSE client.
