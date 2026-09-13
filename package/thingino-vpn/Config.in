@@ -25,6 +25,16 @@ config BR2_PACKAGE_THINGINO_VPN_WIREGUARD
 
 	  https://www.wireguard.com/
 
+config BR2_PACKAGE_THINGINO_VPN_OPENVPN
+	bool "OpenVPN"
+	select BR2_PACKAGE_OPENVPN
+	select BR2_PACKAGE_THINGINO_VPN
+	help
+	  Include OpenVPN. Mature, widely-deployed TLS-based VPN client,
+	  configured via thingino.json and the web UI.
+
+	  https://openvpn.net/
+
 config BR2_PACKAGE_THINGINO_VPN_ZEROTIER
 	bool "ZeroTier-One"
 	select BR2_PACKAGE_ZEROTIER_ONE
