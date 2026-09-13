@@ -440,6 +440,46 @@ do_backup="false"
 
 flush_memory
 
+# getopts (unlike GNU getopt) does not reorder arguments - it stops
+# recognizing flags at the first non-flag token. `sysupgrade <file> -B -x`
+# is at least as natural to type as the "correct" `sysupgrade -B -x
+# <file>`, and a flag placed after the file silently vanishes with no
+# error - do_backup/selfupdate just keep their defaults, and a firmware
+# flash proceeds without the config backup or self-update skip the user
+# asked for. Reorder argv here so every recognized flag precedes every
+# positional argument regardless of the order actually given, before
+# anything below ever looks at "$@". Splits on newline rather than
+# whitespace so a file path containing spaces still survives intact.
+_sysupgrade_nl='
+'
+_sysupgrade_opts=
+_sysupgrade_nonopts=
+_sysupgrade_want_arg=0
+for _sysupgrade_arg in "$@"; do
+	if [ "$_sysupgrade_want_arg" = 1 ]; then
+		_sysupgrade_opts="${_sysupgrade_opts}${_sysupgrade_opts:+$_sysupgrade_nl}$_sysupgrade_arg"
+		_sysupgrade_want_arg=0
+		continue
+	fi
+	case "$_sysupgrade_arg" in
+		-d)
+			_sysupgrade_opts="${_sysupgrade_opts}${_sysupgrade_opts:+$_sysupgrade_nl}$_sysupgrade_arg"
+			_sysupgrade_want_arg=1
+			;;
+		-b | -B | -f | -h | -k | -r | -p | -x | --backup)
+			_sysupgrade_opts="${_sysupgrade_opts}${_sysupgrade_opts:+$_sysupgrade_nl}$_sysupgrade_arg"
+			;;
+		*)
+			_sysupgrade_nonopts="${_sysupgrade_nonopts}${_sysupgrade_nonopts:+$_sysupgrade_nl}$_sysupgrade_arg"
+			;;
+	esac
+done
+_sysupgrade_oldifs=$IFS
+IFS="$_sysupgrade_nl"
+set -- $_sysupgrade_opts $_sysupgrade_nonopts
+IFS=$_sysupgrade_oldifs
+unset _sysupgrade_nl _sysupgrade_opts _sysupgrade_nonopts _sysupgrade_want_arg _sysupgrade_arg _sysupgrade_oldifs
+
 # Parse long options before getopts
 for arg in "$@"; do
 	case "$arg" in
