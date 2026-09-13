@@ -227,11 +227,26 @@ textarea.nowrap {
   color: lightgray;
 }
 
-.card-header .preview-header-actions {
-  position: absolute;
-  right: 1rem;
-  top: 1rem;
+/* Title block and the actions row (stream picker/Connect/Sound/...) share
+   the header. Absolute-positioning the actions in the corner let them sit
+   on top of the title text the moment it needed more than one line (long
+   title, or a narrow header) - real flex layout instead: side by side when
+   there's room, actions drop to their own row when there isn't, never
+   overlapping either way regardless of viewport width. Scoped with :has()
+   rather than changing .card-header everywhere, since most cards only ever
+   hold a plain title with no actions row. */
+.card-header:has(.preview-header-actions) {
+  align-items: center;
+  column-gap: 1rem;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  row-gap: 0.5rem;
+}
+
+.card-header .preview-header-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.4rem;
   align-items: center;
 }
@@ -848,14 +863,47 @@ body.expert .expert {
   text-align: right;
 }
 
+/* Visibility of the whole pan/tilt overlay (joystick disc or pan-only bar):
+   on mouse-driven devices it stays hidden until hovered (desktop habit);
+   on touch devices (no real hover) it stays faintly visible always, since
+   there is no hover gesture to reveal it with - touch is the interaction. */
+#motor-overlay {
+  opacity: 0.35;
+  transition: opacity 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #motor-overlay {
+    opacity: 0;
+  }
+
+  #motor-overlay:hover {
+    opacity: 1;
+  }
+}
+
+/* Same fade behavior as #motor-overlay above - every corner control sitting
+   on top of the video (PTZ, feeder) should fade in/out identically instead
+   of some being permanently-solid buttons and others not. */
+#petcam-feed-overlay {
+  opacity: 0.35;
+  transition: opacity 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  #petcam-feed-overlay {
+    opacity: 0;
+  }
+
+  #petcam-feed-overlay:hover {
+    opacity: 1;
+  }
+}
+
 #motor {
   height: 300px;
   margin: 0 auto;
   width: 300px;
-}
-
-#motor:hover .jst {
-  visibility: visible;
 }
 
 .jst {
@@ -863,7 +911,6 @@ body.expert .expert {
   height: 100%;
   overflow: hidden;
   position: relative;
-  visibility: hidden;
   width: 100%;
 }
 
@@ -872,6 +919,10 @@ body.expert .expert {
   left: 50%;
   position: absolute;
   top: 50%;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
 }
 
 .jst a.s {
@@ -938,6 +989,56 @@ body.expert .expert {
 
 .jst a.b:active {
   background: #ff3300ff;
+}
+
+/* Pan-only control (no tilt motor configured) - shown instead of .jst
+   when motorParams.steps_tilt is 0, see preview-motors.js. Sits as a
+   sibling of #motor (not nested inside its fixed 300px box) so its size
+   isn't capped, and inherits centering from #motor-overlay's own
+   top-50/start-50/translate-middle. */
+.pan-ctrl {
+  align-items: center;
+  display: flex;
+  gap: clamp(0.75rem, 6vw, 2.25rem);
+  justify-content: center;
+}
+
+.pan-ctrl .pan-btn {
+  align-items: center;
+  background-color: #88888833;
+  border-radius: 50%;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  /* Fixed rem sizes looked fine over a desktop-width video but swallowed a
+     narrow (phone-portrait) video almost entirely - scale with viewport
+     width instead, clamped to the original size at the top end so desktop
+     is unchanged. */
+  font-size: clamp(1.5rem, 9vw, 3.5rem);
+  height: clamp(3.5rem, 22vw, 9rem);
+  justify-content: center;
+  width: clamp(3.5rem, 22vw, 9rem);
+  /* Sits over the video/image; without this, a touch press that lingers
+     even slightly is read by mobile browsers as a long-press on the media
+     underneath (native "save image/video" prompt) instead of a tap here. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.pan-ctrl .pan-btn:hover {
+  background-color: #ff880088;
+}
+
+.pan-ctrl .pan-btn:active {
+  background-color: #ff8800ff;
+}
+
+.pan-ctrl .pan-home {
+  font-size: clamp(1.2rem, 7vw, 3rem);
+  height: clamp(2.6rem, 16vw, 6.6rem);
+  width: clamp(2.6rem, 16vw, 6.6rem);
 }
 
 #fileTable tbody td {

@@ -1,0 +1,38 @@
+#!/bin/bash
+# Forced-command target for the camera's geolocation helper key (installed
+# on the VPN server, NOT on the camera - this server has real internet
+# access, the camera deliberately does not). Reads a WiFi-AP JSON payload
+# from stdin (the exact body the camera already built for beaconDB, no
+# transformation needed) and forwards it to beaconDB's public geolocate
+# API, writing whatever beaconDB returns straight back to stdout. No use
+# is made of $SSH_ORIGINAL_COMMAND at all - the only input that matters is
+# the piped stdin body, and the only action this key can ever cause is
+# this one fixed API call.
+#
+# Also appends each result to a local history log: the whole point of
+# keeping location off-device is that it survives the camera being stolen
+# or destroyed, which a log that only lives in the camera's own
+# thingino.json would not. One compact JSON line per lookup, a few hundred
+# bytes - even at the periodic cron cadence this stays negligible for
+# years, so there's no rotation here.
+#
+# Install: put this at /usr/local/sbin/petcam-locate-receive (chmod 755),
+# then add one line to root's authorized_keys for the camera's
+# petcam-locate.key pubkey:
+#
+#   command="/usr/local/sbin/petcam-locate-receive",no-agent-forwarding,no-X11-forwarding,no-port-forwarding,no-pty <pubkey>
+set -euo pipefail
+
+LOG=/srv/petcam-backup/locations.jsonl
+
+response=$(curl -s -X POST \
+	-H "Content-Type: application/json" \
+	-H "User-Agent: petcam-locate/1.0 (personal, low-volume, github.com/thingino)" \
+	--max-time 10 \
+	--data-binary @- \
+	https://api.beacondb.net/v1/geolocate)
+
+printf '%s' "$response"
+
+mkdir -p "$(dirname "$LOG")"
+printf '{"received":%s,"response":%s}\n' "$(date +%s)" "$response" >>"$LOG"

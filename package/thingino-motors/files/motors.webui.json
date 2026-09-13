@@ -17,10 +17,9 @@
   "styles": [],
   "preview": {
     "scripts": [
-      "/a/preview-motors.js",
-      "/a/preview-motors-settings.js"
+      "/a/preview-motors.js"
     ],
-    "html": "<div class=\"position-absolute top-50 start-50 translate-middle\" id=\"motor-overlay\" style=\"display:none\">\n  <div id=\"motor\">\n    <div class=\"jst\">\n      <a class=\"s\" data-dir=\"uc\"></a>\n      <a class=\"s\" data-dir=\"ur\"></a>\n      <a class=\"s\" data-dir=\"cr\"></a>\n      <a class=\"s\" data-dir=\"dr\"></a>\n      <a class=\"s\" data-dir=\"dc\"></a>\n      <a class=\"s\" data-dir=\"dl\"></a>\n      <a class=\"s\" data-dir=\"cl\"></a>\n      <a class=\"s\" data-dir=\"ul\"></a>\n      <a class=\"b\" data-dir=\"h\"></a>\n    </div>\n  </div>\n</div>"
+    "html": "<div class=\"position-absolute top-50 start-50 translate-middle\" id=\"motor-overlay\" style=\"display:none\">\n  <div id=\"motor\">\n    <div class=\"jst\">\n      <a class=\"s\" data-dir=\"uc\"></a>\n      <a class=\"s\" data-dir=\"ur\"></a>\n      <a class=\"s\" data-dir=\"cr\"></a>\n      <a class=\"s\" data-dir=\"dr\"></a>\n      <a class=\"s\" data-dir=\"dc\"></a>\n      <a class=\"s\" data-dir=\"dl\"></a>\n      <a class=\"s\" data-dir=\"cl\"></a>\n      <a class=\"s\" data-dir=\"ul\"></a>\n      <a class=\"b\" data-dir=\"h\"></a>\n    </div>\n  </div>\n  <div class=\"pan-ctrl\" style=\"display:none\">\n    <a class=\"pan-btn pan-left\" data-dir=\"cl\"><i class=\"bi bi-chevron-left\"></i></a>\n    <a class=\"pan-btn pan-home\"><i class=\"bi bi-record-circle\"></i></a>\n    <a class=\"pan-btn pan-right\" data-dir=\"cr\"><i class=\"bi bi-chevron-right\"></i></a>\n  </div>\n</div>"
   },
   "featureFlags": {
     "motors": true

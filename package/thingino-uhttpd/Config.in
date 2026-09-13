@@ -26,6 +26,12 @@ if BR2_PACKAGE_THINGINO_UHTTPD
 config BR2_PACKAGE_THINGINO_UHTTPD_TLS
 	bool "Enable TLS/HTTPS support"
 	default y
+	# Selecting this from the individual MBEDTLS/OPENSSL/WOLFSSL choice
+	# members below creates a Kconfig recursive-dependency error: ustream-ssl
+	# itself conditionally selects BR2_PACKAGE_OPENSSL, which is also what
+	# the OPENSSL choice member depends on, closing a cycle through the
+	# choice. Selecting it here instead (outside the choice) avoids that.
+	select BR2_PACKAGE_THINGINO_USTREAM_SSL
 	help
 	  Enable TLS/HTTPS support for uhttpd.
 	  This provides secure encrypted connections to the camera's

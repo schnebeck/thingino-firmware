@@ -1,0 +1,44 @@
+#!/bin/bash
+# Forced-command target for the camera's backup push key (installed on the
+# VPN/backup server, NOT on the camera). Ignores whatever the client
+# actually asked for except for one thing: the relative path it names in
+# $SSH_ORIGINAL_COMMAND, which must match clips/<name>, sounds/<name>, or
+# emergency/<name> - one subdirectory level, plain filename, no traversal,
+# no absolute paths, no symlink tricks. Everything else about the request
+# is ignored, matching the same "ignore what the client asked, do exactly
+# one fixed safe thing" pattern as the TLS cert-pull key's forced command.
+#
+# Install: put this at /usr/local/sbin/petcam-backup-receive (chmod 755),
+# then add one line to root's authorized_keys for the camera's backup
+# pubkey (see petcam-backup-push on the camera side for how it's
+# generated):
+#
+#   command="/usr/local/sbin/petcam-backup-receive",no-agent-forwarding,no-X11-forwarding,no-port-forwarding,no-pty <pubkey>
+set -euo pipefail
+
+BASE=/srv/petcam-backup
+MAX_BYTES=2147483648  # 2GB cap - this server only has a few GB free total,
+                       # shared with other services (zoneminder etc.) - do
+                       # not raise this without checking `df -h /` first.
+
+raw="${SSH_ORIGINAL_COMMAND:-}"
+if ! [[ "$raw" =~ ^(clips|sounds|emergency)/[A-Za-z0-9._-]+$ ]]; then
+	echo "petcam-backup-receive: rejected path: $raw" >&2
+	exit 1
+fi
+dest="$BASE/$raw"
+mkdir -p "$(dirname "$dest")"
+cat > "$dest.part"
+mv "$dest.part" "$dest"
+
+# Enforce the retention cap by deleting oldest files first, pooled across
+# all three subdirs - one shared backup budget rather than three separate
+# quotas, so a burst of emergency snapshots can't starve clip backups or
+# vice versa.
+while true; do
+	total=$(du -sb "$BASE" 2>/dev/null | cut -f1)
+	[ -n "$total" ] && [ "$total" -le "$MAX_BYTES" ] && break
+	oldest=$(find "$BASE" -type f -printf '%T@ %p\n' 2>/dev/null | sort -n | head -1 | cut -d' ' -f2-)
+	[ -n "$oldest" ] || break
+	rm -f "$oldest"
+done

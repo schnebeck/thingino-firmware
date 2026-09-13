@@ -1,0 +1,56 @@
+#!/bin/sh
+# shellcheck disable=SC2034
+
+DAEMON="petcam-backup-sync"
+CRONTABS_FLASH="/etc/cron/crontabs/root"
+CRONTABS_RAM="/run/cron/crontabs/root"
+CRONTABS="$CRONTABS_RAM"
+
+ensure_ram_crontab() {
+	mkdir -p "$(dirname "$CRONTABS_RAM")"
+	if [ ! -f "$CRONTABS_RAM" ]; then
+		cp "$CRONTABS_FLASH" "$CRONTABS_RAM" 2>/dev/null || touch "$CRONTABS_RAM"
+		chmod 600 "$CRONTABS_RAM"
+	fi
+}
+
+start() {
+	echo -c 15 "Starting $DAEMON cron entry"
+
+	[ -x /usr/sbin/$DAEMON ] || return 0
+
+	ensure_ram_crontab
+
+	if grep -q "$DAEMON" "$CRONTABS_RAM" 2>/dev/null; then
+		echo "$DAEMON already in crontab"
+	else
+		printf "# off-site backup sync every 15 minutes\n*/15 * * * * %s >/dev/null 2>&1\n" \
+			"$DAEMON" >>"$CRONTABS_RAM"
+		echo "$DAEMON added to crontab"
+	fi
+}
+
+stop() {
+	echo -c 15 "Stopping $DAEMON cron entry"
+	if [ -f "$CRONTABS_RAM" ]; then
+		tmpfile=$(mktemp)
+		sed "/$DAEMON/d" "$CRONTABS_RAM" >"$tmpfile"
+		cp "$tmpfile" "$CRONTABS_RAM"
+		rm -f "$tmpfile"
+	fi
+}
+
+case "$1" in
+	start) start ;;
+	stop) stop ;;
+	restart)
+		stop
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		exit 1
+		;;
+esac
+
+exit 0

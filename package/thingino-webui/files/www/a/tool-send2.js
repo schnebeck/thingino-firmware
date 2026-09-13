@@ -22,6 +22,12 @@
   const motionSensitivityValue = $("#motion_sensitivity_value");
   const motionCooldownInput = $("#motion_cooldown");
   const motionCooldownValue = $("#motion_cooldown_value");
+  const motionRecordSecsInput = $("#motion_record_secs");
+  const motionRecordSecsValue = $("#motion_record_secs_value");
+  const motionExtendSecsInput = $("#motion_extend_secs");
+  const motionExtendSecsValue = $("#motion_extend_secs_value");
+  const motionEmailSubjectInput = $("#motion_email_subject");
+  const motionEmailBodyInput = $("#motion_email_body");
   const saveAllButton = $("#save_all");
 
   // Speaker elements
@@ -46,6 +52,22 @@
     motionCooldownInput.addEventListener("input", () => {
       if (motionCooldownValue) {
         motionCooldownValue.textContent = motionCooldownInput.value;
+      }
+    });
+  }
+
+  if (motionRecordSecsInput) {
+    motionRecordSecsInput.addEventListener("input", () => {
+      if (motionRecordSecsValue) {
+        motionRecordSecsValue.textContent = motionRecordSecsInput.value;
+      }
+    });
+  }
+
+  if (motionExtendSecsInput) {
+    motionExtendSecsInput.addEventListener("input", () => {
+      if (motionExtendSecsValue) {
+        motionExtendSecsValue.textContent = motionExtendSecsInput.value;
       }
     });
   }
@@ -90,6 +112,25 @@
     }
   }
 
+  const audioAlarmEndpoint = "/x/json-audio-alarm.cgi";
+
+  async function updateAudioAlarmValue(service, value) {
+    try {
+      const payload = { audio_alarm: { [service]: value } };
+      const response = await fetch(audioAlarmEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error("Failed to update");
+      const result = await response.json();
+      if (result.error) throw new Error(result.error.message);
+    } catch (err) {
+      console.error(`Failed to update audio alarm ${service}:`, err);
+      showAlert("danger", `Failed to update ${service}: ${err.message || err}`);
+    }
+  }
+
   async function loadConfig() {
     showBusy("Loading configuration...");
     try {
@@ -120,6 +161,20 @@
           if (motionCooldownValue)
             motionCooldownValue.textContent = motionCooldownInput.value;
         }
+        if (motionRecordSecsInput) {
+          motionRecordSecsInput.value = data.motion.record_secs || 20;
+          if (motionRecordSecsValue)
+            motionRecordSecsValue.textContent = motionRecordSecsInput.value;
+        }
+        if (motionExtendSecsInput) {
+          motionExtendSecsInput.value = data.motion.extend_secs ?? 10;
+          if (motionExtendSecsValue)
+            motionExtendSecsValue.textContent = motionExtendSecsInput.value;
+        }
+        if (motionEmailSubjectInput)
+          motionEmailSubjectInput.value = data.motion.email_subject || "";
+        if (motionEmailBodyInput)
+          motionEmailBodyInput.value = data.motion.email_body || "";
 
         // Update motion service checkboxes
         const services = [
@@ -207,6 +262,26 @@
         }
         if (speakerLoopInput) speakerLoopInput.value = data.speaker.loop ?? 1;
       }
+
+      try {
+        const aaResponse = await fetch(audioAlarmEndpoint, {
+          headers: { Accept: "application/json" },
+        });
+        if (aaResponse.ok) {
+          const aaData = await aaResponse.json();
+          const audioAlarm = aaData.audio_alarm || {};
+          services.forEach((service) => {
+            const checkbox = $(`#audio_send2${service}`);
+            if (checkbox) {
+              checkbox.checked =
+                audioAlarm[`send2${service}`] === true ||
+                audioAlarm[`send2${service}`] === "true";
+            }
+          });
+        }
+      } catch (err) {
+        console.error("Failed to load audio alarm config:", err);
+      }
     } catch (err) {
       console.error("Failed to load config:", err);
       showAlert(
@@ -237,6 +312,18 @@
           cooldown_time: motionCooldownInput
             ? Number(motionCooldownInput.value)
             : 15,
+          record_secs: motionRecordSecsInput
+            ? Number(motionRecordSecsInput.value)
+            : 20,
+          extend_secs: motionExtendSecsInput
+            ? Number(motionExtendSecsInput.value)
+            : 10,
+          email_subject: motionEmailSubjectInput
+            ? motionEmailSubjectInput.value.trim()
+            : "",
+          email_body: motionEmailBodyInput
+            ? motionEmailBodyInput.value.trim()
+            : "",
         },
         speaker: {
           file: speakerFileInput ? speakerFileInput.value : "",
@@ -301,6 +388,15 @@
       const service = ev.target.dataset.service;
       const value = ev.target.checked;
       updateMotionValue(service, value);
+    });
+  });
+
+  // Handle audio alarm service toggles
+  $$(".audio-sendto").forEach((checkbox) => {
+    checkbox.addEventListener("change", (ev) => {
+      const service = ev.target.dataset.service;
+      const value = ev.target.checked;
+      updateAudioAlarmValue(service, value);
     });
   });
 

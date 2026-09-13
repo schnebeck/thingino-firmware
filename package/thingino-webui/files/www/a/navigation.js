@@ -107,6 +107,7 @@
     );
 
     return [
+      { type: "link", label: "Live View", href: "/preview.html" },
       {
         type: "dropdown",
         id: "ddInfo",
@@ -152,7 +153,6 @@
         label: "Streamer",
         items: [],
       },
-      { type: "link", label: "Preview", href: "/preview.html" },
       {
         type: "dropdown",
         id: "ddHelp",
@@ -420,7 +420,7 @@
     const middleItems = [];
 
     menuItems.forEach((item) => {
-      if (item.type === "link" && item.label === "Preview") {
+      if (item.type === "link" && item.label === "Live View") {
         previewItems.push(item);
       } else if (item.id === "ddInfo") {
         infoItems.push(item);

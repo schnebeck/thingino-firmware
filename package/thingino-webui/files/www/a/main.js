@@ -604,15 +604,28 @@ function togglePrivacy(state) {
     });
 }
 
-function toggleWireGuard(state) {
+// Only one VPN client is ever installed on a given camera (OpenVPN and
+// WireGuard are alternatives, not both) - resolves to whichever one's
+// device flag is set, matching control-bar.js's vpnTarget().
+function currentVPN() {
   var uiConfig = window.thinginoUIConfig || {};
-  if (!uiConfig.device || !uiConfig.device.wireguard) return;
+  var device = uiConfig.device || {};
+  if (device.openvpn) return { id: "openvpn", cgi: "/x/json-openvpn.cgi" };
+  if (device.wireguard)
+    return { id: "wireguard", cgi: "/x/json-wireguard.cgi?iface=wg0" };
+  return null;
+}
 
-  const button = $("#wireguard");
+function toggleVPN(state) {
+  const vpn = currentVPN();
+  if (!vpn) return;
+
+  const button = $("#" + vpn.id);
   if (button) button.classList.add("pending");
 
   const targetState = state ? 1 : 0;
-  fetch("/x/json-wireguard.cgi?iface=wg0&state=" + targetState)
+  const sep = vpn.cgi.indexOf("?") >= 0 ? "&" : "?";
+  fetch(vpn.cgi + sep + "state=" + targetState)
     .then(async (res) => {
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
@@ -629,16 +642,20 @@ function toggleWireGuard(state) {
         data && data.message && data.message.status !== undefined
           ? data.message.status
           : targetState;
-      updateHeartbeatUi({ wg_status: nextStatus });
+      if (button) {
+        button.classList.remove("pending");
+        button.classList.toggle("active", nextStatus === 1);
+      }
+      if (vpn.id === "wireguard") updateHeartbeatUi({ wg_status: nextStatus });
     })
     .catch((err) => {
       if (typeof window.showOverlayMessage === "function") {
         window.showOverlayMessage(
-          err.message || "Failed to toggle WireGuard",
+          err.message || "Failed to toggle VPN",
           "danger",
         );
       }
-      console.warn("WireGuard toggle error", err);
+      console.warn("VPN toggle error", err);
       if (button) button.classList.remove("pending");
     });
 }
@@ -1106,7 +1123,6 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function heartbeat() {
-  console.trace("heartbeat() called");
   // Don't start heartbeat until password check is complete
   if (!passwordCheckComplete) {
     console.log("Heartbeat disabled: password check not complete");
@@ -2380,13 +2396,43 @@ function initPasswordRevealToggles(root = document) {
       });
     }
 
-    // setup wireguard button handler
-    const wireguardBtn = $("#wireguard");
-    if (wireguardBtn) {
-      wireguardBtn.addEventListener("click", (ev) => {
+    // setup VPN button handler (id is "openvpn" or "wireguard" - see
+    // currentVPN()/control-bar.js's vpnTarget(), only one is ever installed)
+    const vpnInfo = currentVPN();
+    const vpnBtn = vpnInfo ? $("#" + vpnInfo.id) : null;
+    if (vpnBtn) {
+      vpnBtn.addEventListener("click", async (ev) => {
         ev.preventDefault();
-        toggleWireGuard(!wireguardBtn.classList.contains("active"));
+        const nextState = !vpnBtn.classList.contains("active");
+        // Disabling is the dangerous direction: if this connection is itself
+        // tunneled through the VPN, a single misclick cuts off remote access
+        // with no way to turn it back on except physical access to the
+        // camera. Enabling is harmless, so only guard this direction.
+        if (!nextState) {
+          const confirmed = await window.confirm(
+            "This may disconnect your current remote session if you're connected through the VPN. Continue?",
+            { title: "Disable VPN", confirmLabel: "Disable", intent: "danger" },
+          );
+          if (!confirmed) return;
+        }
+        toggleVPN(nextState);
       });
+      // WireGuard's initial state comes from the shared heartbeat poll
+      // (json.wg_status), which already runs on page load. OpenVPN isn't
+      // part of that shared payload, so without this the button always
+      // starts looking "off" regardless of the tunnel's real state, until
+      // the first click flips it to match reality by accident.
+      if (vpnInfo.id === "openvpn") {
+        fetch("/x/json-openvpn.cgi", { cache: "no-store" })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            const status = data && data.message && data.message.status;
+            if (status !== undefined) {
+              vpnBtn.classList.toggle("active", status === 1);
+            }
+          })
+          .catch(() => {});
+      }
     }
 
     // setup daynight button handler

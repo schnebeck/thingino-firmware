@@ -1,0 +1,7 @@
+# petcam-only kernel config additions - not part of the shared t31.generic.config
+# base used by other boards.
+
+# TUN/TAP device support, required for the OpenVPN client
+# (package/thingino-openvpn). Built as a module so it stays optional and
+# loads on demand via S43openvpn instead of being always resident.
+CONFIG_TUN=m

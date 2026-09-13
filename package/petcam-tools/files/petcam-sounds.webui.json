@@ -1,0 +1,34 @@
+{
+  "name": "petcam-sounds",
+  "label": "Sound Buttons",
+  "apiVersion": 1,
+  "nav": [
+    {
+      "section": "ddSettings",
+      "position": "after:Feeder",
+      "items": [
+        {
+          "label": "Sound Buttons",
+          "href": "/config-sound-buttons.html"
+        }
+      ]
+    }
+  ],
+  "scripts": ["/a/sound-buttons-control.js"],
+  "styles": [],
+  "preview": {
+    "scripts": [],
+    "html": null
+  },
+  "featureFlags": {
+    "petcam_sounds": true
+  },
+  "cgi": [
+    "/x/json-sound-buttons.cgi",
+    "/x/json-sound-upload.cgi",
+    "/x/play-sound.cgi"
+  ],
+  "pages": [
+    "/config-sound-buttons.html"
+  ]
+}

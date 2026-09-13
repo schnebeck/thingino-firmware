@@ -1,0 +1,53 @@
+#!/bin/sh
+# Periodic off-site backup sync: pushes any clip or sound file not already
+# backed up (tracked in $STATE, one relative path per line) to the VPN
+# server via petcam-backup-push. Safety net for everything that isn't the
+# emergency fast-path (petcam-emergency-snapshot) - that path pushes
+# immediately on trigger and doesn't wait for this, but this will also
+# eventually confirm/re-push an emergency snapshot if the immediate push
+# failed, since emergency/ is scanned here too.
+#
+# Best-effort and cheap to re-run: only ever pushes files not yet recorded
+# in $STATE, so a VPN outage just means this run's candidates stay
+# unmarked and get retried on the next scheduled run.
+
+STATE=/etc/petcam-backup-synced.list
+CLIPS_DIR=/mnt/mmcblk0p1/raptor/clips
+SOUNDS_DIR=/mnt/mmcblk0p1/raptor/sounds
+EMERGENCY_DIR=/mnt/mmcblk0p1/raptor/emergency
+
+touch "$STATE"
+
+sync_flat() {
+	dir="$1"
+	category="$2"
+	[ -d "$dir" ] || return 0
+	find "$dir" -maxdepth 1 -type f | while read -r f; do
+		rel=$(basename "$f")
+		grep -qxF "$category/$rel" "$STATE" 2>/dev/null && continue
+		if petcam-backup-push "$f" "$category" "$rel"; then
+			echo "$category/$rel" >> "$STATE"
+		fi
+	done
+}
+
+# Clips live nested under a date directory - flatten date/time into one
+# remote name (see petcam-backup-push's own comment on why: the receive
+# script only accepts a single path level, and two dates could otherwise
+# share the same time-only basename).
+sync_clips() {
+	dir="$1"
+	[ -d "$dir" ] || return 0
+	find "$dir" -mindepth 2 -maxdepth 2 -type f -name '*.mp4' | while read -r f; do
+		rel=${f#"$dir"/}
+		flat=$(printf '%s' "$rel" | tr '/' '_')
+		grep -qxF "clips/$flat" "$STATE" 2>/dev/null && continue
+		if petcam-backup-push "$f" clips "$flat"; then
+			echo "clips/$flat" >> "$STATE"
+		fi
+	done
+}
+
+sync_clips "$CLIPS_DIR"
+sync_flat "$SOUNDS_DIR" sounds
+sync_flat "$EMERGENCY_DIR" emergency

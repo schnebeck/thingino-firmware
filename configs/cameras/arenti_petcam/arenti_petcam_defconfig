@@ -1,0 +1,57 @@
+# NAME: PetCam custom (T31X, SC301IoT, ETH, RTL8731BU; based on Jienuo JN-107AR-E-WIFI defaults)
+# FRAG: soc-xburst1 core
+BR2_ETHERNET=y
+BR2_INGENIC_SOC_MODEL="t31x"
+BR2_ISP_CLK_200MHZ=y
+BR2_PACKAGE_PETCAM_AUDIO_ALARM=y
+BR2_PACKAGE_PETCAM_TOOLS=y
+BR2_PACKAGE_THINGINO_DIAG=y
+BR2_PACKAGE_THINGINO_KOPT_ADC=y
+BR2_PACKAGE_THINGINO_KOPT_JZ_MAC_V13=y
+BR2_PACKAGE_THINGINO_KOPT_MMC0=y
+BR2_PACKAGE_THINGINO_KOPT_MMC0_PB_4BIT=y
+BR2_PACKAGE_WIFI=y
+BR2_PACKAGE_WIFI_RTL8733BU=y
+BR2_SENSOR_1_NAME="sc301iot"
+BR2_THINGINO_AUDIO=y
+BR2_THINGINO_BUTTON=y
+BR2_THINGINO_LED_R_GPIO=49
+BR2_THINGINO_LED_B_GPIO=50
+BR2_THINGINO_RMEM_MB=64
+BR2_THINGINO_SDCARD=y
+FLASH_SIZE_MB=16
+BR2_THINGINO_MOTORS=y
+BR2_PACKAGE_THINGINO_RAPTOR_CONF_WEBRTC_AUDIO_MODE_PCMU=y
+BR2_PACKAGE_THINGINO_UHTTPD_TLS_MBEDTLS=y
+BR2_PACKAGE_OPENVPN=y
+BR2_PACKAGE_OPENVPN_SMALL=y
+# BR2_PACKAGE_THINGINO_VPN_WIREGUARD is not set
+# BR2_PACKAGE_THINGINO_MOSQUITTO_20X is not set
+# BR2_PACKAGE_THINGINO_HA is not set
+
+# Minimal ffmpeg build: converts sound-button uploads that rac (see
+# rac_play.c's detect_format()) can't play natively - notably .m4a/.mp4,
+# MP4 containers wrapping AAC that rac would otherwise misdetect as raw
+# PCM and play back as noise - into a plain WAV it can. Only the input
+# formats/codecs users are actually likely to upload plus the one fixed
+# output (pcm_s16le/wav) are enabled; no network protocols, no video,
+# no GPL/nonfree code needed for any of this.
+BR2_PACKAGE_FFMPEG=y
+BR2_PACKAGE_FFMPEG_FFMPEG=y
+# BR2_PACKAGE_FFMPEG_FFPLAY is not set
+BR2_PACKAGE_FFMPEG_FFPROBE=y
+# BR2_PACKAGE_FFMPEG_XCBGRAB is not set
+# BR2_PACKAGE_FFMPEG_POSTPROC is not set
+# BR2_PACKAGE_FFMPEG_SWSCALE is not set
+BR2_PACKAGE_FFMPEG_ENCODERS="pcm_s16le"
+BR2_PACKAGE_FFMPEG_DECODERS="aac mp3 mp3float vorbis opus flac pcm_s16le pcm_s24le pcm_u8 pcm_f32le pcm_s32le"
+BR2_PACKAGE_FFMPEG_MUXERS="wav"
+BR2_PACKAGE_FFMPEG_DEMUXERS="mov wav ogg flac mp3 aac"
+BR2_PACKAGE_FFMPEG_PARSERS="aac mpegaudio flac vorbis opus"
+BR2_PACKAGE_FFMPEG_BSFS=""
+BR2_PACKAGE_FFMPEG_PROTOCOLS="file"
+BR2_PACKAGE_FFMPEG_FILTERS="aresample aformat anull afade areverse"
+# BR2_PACKAGE_FFMPEG_INDEVS is not set
+# BR2_PACKAGE_FFMPEG_OUTDEVS is not set
+
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_THINGINO_PATH)/configs/cameras/arenti_petcam/kernel.fragment"

@@ -1,0 +1,73 @@
+#!/bin/sh
+# Issues (and, run again later, renews) a certificate signed by this
+# server's own private internal CA, for devices reachable only over a VPN
+# - not petcam-specific, any internal device on any VPN can get one, and
+# nothing here assumes a particular VPN backend or address range: the
+# only VPN-specific detail is the IP you pass in for the SAN. Usage:
+# vpn-ca-issue <name> <ip>
+#   <name> - identifies the device, used as its cert's directory name
+#   <ip>   - the device's fixed VPN tunnel IP, embedded as the cert's SAN
+#
+# Set VPN_CA_ORG in the environment to brand the root CA and every leaf
+# cert's Organization field (defaults to "Internal VPN CA" - Android's
+# certificate installer needs a non-empty O= to display a sane label, it
+# doesn't need to be a real organization). Only read on first run, when
+# the root CA itself is created - irrelevant afterward.
+#
+# Idempotent: only (re)issues the leaf cert when missing or within 60
+# days of expiry; the CA root itself is created once on first use and
+# never rotated (rotating it would require re-importing trust on every
+# client device, which is exactly what this setup avoids).
+set -e
+NAME="$1"
+IP="$2"
+if [ -z "$NAME" ] || [ -z "$IP" ]; then
+	echo "Usage: $0 <name> <ip>" >&2
+	exit 1
+fi
+
+ORG="${VPN_CA_ORG:-Internal VPN CA}"
+CADIR=/etc/vpn-ca
+OUTDIR="$CADIR/issued/$NAME"
+DAYS_VALID=730
+RENEW_BEFORE_DAYS=60
+
+mkdir -p "$CADIR" "$OUTDIR"
+
+if [ ! -f "$CADIR/ca.key" ]; then
+	openssl ecparam -name prime256v1 -genkey -noout -out "$CADIR/ca.key"
+	openssl req -x509 -new -key "$CADIR/ca.key" -sha256 -days 3650 \
+		-subj "/O=$ORG/CN=$ORG Root" -out "$CADIR/ca.crt"
+	chmod 600 "$CADIR/ca.key"
+	chmod 644 "$CADIR/ca.crt"
+fi
+
+need_issue=0
+if [ ! -f "$OUTDIR/fullchain.pem" ] || [ ! -f "$OUTDIR/privkey.pem" ]; then
+	need_issue=1
+else
+	end_epoch=$(openssl x509 -enddate -noout -in "$OUTDIR/fullchain.pem" | cut -d= -f2 | xargs -I{} date -d {} +%s)
+	now_epoch=$(date +%s)
+	days_left=$(( (end_epoch - now_epoch) / 86400 ))
+	[ "$days_left" -lt "$RENEW_BEFORE_DAYS" ] && need_issue=1
+fi
+
+[ "$need_issue" = "1" ] || exit 0
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+openssl ecparam -name prime256v1 -genkey -noout -out "$TMP/privkey.pem"
+openssl req -new -key "$TMP/privkey.pem" -subj "/O=$ORG/CN=$IP" -out "$TMP/csr.pem"
+cat > "$TMP/ext.cnf" <<EOF
+subjectAltName = IP:$IP
+extendedKeyUsage = serverAuth
+EOF
+openssl x509 -req -in "$TMP/csr.pem" -CA "$CADIR/ca.crt" -CAkey "$CADIR/ca.key" \
+	-CAcreateserial -out "$TMP/cert.pem" -days "$DAYS_VALID" -sha256 -extfile "$TMP/ext.cnf"
+
+cat "$TMP/cert.pem" "$CADIR/ca.crt" > "$OUTDIR/fullchain.pem"
+cp "$TMP/privkey.pem" "$OUTDIR/privkey.pem"
+chmod 644 "$OUTDIR/fullchain.pem"
+chmod 600 "$OUTDIR/privkey.pem"
+echo "Issued new certificate for $NAME ($IP), valid $DAYS_VALID days"

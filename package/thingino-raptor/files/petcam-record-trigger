@@ -1,0 +1,38 @@
+#!/bin/sh
+# petcam-record-trigger <seconds> - starts (if needed) and extends the
+# shared SD motion-clip recording that both raptor-motion and audio-alarm
+# drive. Idempotent: safe to call repeatedly while a trigger condition
+# stays active. See petcam-record-watch (S60petcam-record-watch) for the
+# stop side - it polls the deadline this writes and calls "rmr stop" once
+# it passes with no further triggers.
+
+DEADLINE_FILE=/run/petcam-record-until
+secs="${1:-20}"
+
+case "$secs" in
+	'' | *[!0-9]*) secs=20 ;;
+esac
+
+now=$(date +%s)
+new_deadline=$((now + secs))
+cur_deadline=0
+[ -f "$DEADLINE_FILE" ] && cur_deadline=$(cat "$DEADLINE_FILE" 2>/dev/null)
+case "$cur_deadline" in '' | *[!0-9]*) cur_deadline=0 ;; esac
+
+if [ "$new_deadline" -gt "$cur_deadline" ]; then
+	echo "$new_deadline" >"$DEADLINE_FILE"
+fi
+
+# NOTE: "raptorctl rmr start"/"stop" are shadowed by raptorctl's own generic
+# <daemon> start/stop (process lifecycle: fork+exec / shutdown) - argv[2]
+# "start" never reaches rmr's own ctrl handler, so this deliberately uses
+# "enable"/"disable" instead, which aren't in that generic intercept list.
+# For [recording] mode=motion, verified live that enable/disable toggle the
+# same "recording" flag the documented clip start/stop commands would have.
+status=$(raptorctl rmr status 2>/dev/null)
+recording=no
+printf '%s' "$status" | grep -q '"recording"[[:space:]]*:[[:space:]]*true' && recording=yes
+printf '%s' "$status" | grep -q '"clip"[[:space:]]*:[[:space:]]*true' && recording=yes
+[ "$recording" = "yes" ] || raptorctl rmr enable >/dev/null 2>&1
+
+exit 0

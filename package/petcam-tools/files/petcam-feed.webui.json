@@ -1,0 +1,34 @@
+{
+  "name": "petcam-feed",
+  "label": "Feeder",
+  "apiVersion": 1,
+  "nav": [
+    {
+      "section": "ddSettings",
+      "position": "after:Admin profile",
+      "items": [
+        {
+          "label": "Feeder",
+          "href": "/feed.html"
+        }
+      ]
+    }
+  ],
+  "scripts": [],
+  "styles": [],
+  "preview": {
+    "scripts": [
+      "/a/petcam-feed-preview.js"
+    ],
+    "html": "<div class=\"position-absolute bottom-0 end-0 m-3\" id=\"petcam-feed-overlay\">\n  <button type=\"button\" class=\"btn btn-primary\" id=\"petcam-feed-preview-btn\">\n    <i class=\"bi bi-cup-straw\"></i>\n  </button>\n</div>"
+  },
+  "featureFlags": {
+    "petcam_feed": true
+  },
+  "cgi": [
+    "/x/json-feed.cgi"
+  ],
+  "pages": [
+    "/feed.html"
+  ]
+}

@@ -38,18 +38,24 @@ EOF
 
 # GET - Load configuration
 if [ "$REQUEST_METHOD" = "GET" ]; then
-	# Prefer agent motion enable; fall back to prudynt.json
+	# The full record (sensitivity, cooldown, send2* flags, email overrides,
+	# ...) lives in thingino.json on non-prudynt builds (raptor-motion reads
+	# it from there) or prudynt.json where that exists; agentctl's own
+	# motion/enabled setting is only consulted as a bootstrap-time fallback
+	# before anything has ever been saved here, since it only ever carries
+	# the single "enabled" flag and would otherwise mask everything else.
 	motion_data=
-	if command -v agentctl >/dev/null 2>&1; then
-		enabled=$(agentctl get-setting motion/enabled 2>/dev/null | sed -n 's/.*"enabled"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' | head -n 1)
-		[ -n "$enabled" ] && motion_data="{\"enabled\":$enabled}"
+	[ -f /etc/thingino.json ] && motion_data=$(jct /etc/thingino.json get motion 2>/dev/null)
+	if { [ -z "$motion_data" ] || [ "$motion_data" = "null" ]; } && [ -f "$prudynt_config" ]; then
+		motion_data=$(jct "$prudynt_config" get motion 2>/dev/null)
 	fi
-	if [ -z "$motion_data" ]; then
-		if [ -f "$prudynt_config" ]; then
-			motion_data=$(jct "$prudynt_config" get motion 2>/dev/null || echo '{}')
-		else
-			motion_data='{}'
+	if [ -z "$motion_data" ] || [ "$motion_data" = "null" ]; then
+		motion_data=
+		if command -v agentctl >/dev/null 2>&1; then
+			enabled=$(agentctl get-setting motion/enabled 2>/dev/null | sed -n 's/.*"enabled"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' | head -n 1)
+			[ -n "$enabled" ] && motion_data="{\"enabled\":$enabled}"
 		fi
+		[ -z "$motion_data" ] && motion_data='{}'
 	fi
 
 	# Helper to safely get config values
@@ -141,6 +147,11 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
 		motion_temp=$(mktemp)
 		motion_val=$(jct "$temp_json" get motion)
 		printf '{"motion": %s}\n' "$motion_val" >"$motion_temp"
+		# Always mirror into thingino.json - raptor-motion (and any other
+		# non-prudynt streamer's motion bridge) reads motion.* from there,
+		# which only exists on prudynt-based builds where prudynt itself
+		# is what actually reads it.
+		jct /etc/thingino.json import "$motion_temp"
 		if [ -f "$prudynt_config" ]; then
 			jct "$prudynt_config" import "$motion_temp"
 			sync

@@ -1,0 +1,118 @@
+#!/bin/sh
+# shellcheck disable=SC2016,SC2086,SC2154,SC3043
+
+CONFIG_JSON="${CONFIG_JSON:-/etc/thingino.json}"
+JCT_BIN="${JCT_BIN:-$(command -v jct 2>/dev/null)}"
+OPENVPN_BIN="/usr/sbin/openvpn"
+OPENVPN_CONF="/etc/openvpn/client.ovpn"
+PIDFILE="/run/openvpn.pid"
+
+ensure_tun_device() {
+	if ! grep -qE '^tun\b' /proc/modules 2>/dev/null; then
+		modprobe tun 2>/dev/null || {
+			echo -c 160 -e "Failed to load tun kernel module" >&2
+			return 1
+		}
+	fi
+	[ -c /dev/net/tun ] && return 0
+	mkdir -p /dev/net
+	mknod /dev/net/tun c 10 200 2>/dev/null
+}
+
+openvpn_json_get() {
+	local key="$1" value="" rc=0
+	value=$("$JCT_BIN" "$CONFIG_JSON" get "openvpn.$key" 2>/dev/null) || rc=$?
+	[ "$value" = "null" ] && value=""
+	printf '%s' "$value"
+	return $rc
+}
+
+openvpn_load_config() {
+	if [ -z "$JCT_BIN" ]; then
+		echo -c 160 -e "jct utility not found; cannot read $CONFIG_JSON" >&2
+		return 1
+	fi
+	if [ ! -r "$CONFIG_JSON" ]; then
+		echo -c 160 -e "Config file $CONFIG_JSON not found" >&2
+		return 1
+	fi
+	openvpn_enabled=$(openvpn_json_get enabled)
+	openvpn_enabled=${openvpn_enabled:-false}
+}
+
+write_client_config() {
+	local config
+	config=$("$JCT_BIN" "$CONFIG_JSON" get openvpn.config 2>/dev/null)
+	[ "$config" = "null" ] && config=""
+	if [ -z "$config" ]; then
+		echo -c 160 -e "No OpenVPN client config stored" >&2
+		return 1
+	fi
+	umask 077
+	mkdir -p /etc/openvpn
+	printf '%s\n' "$config" >"$OPENVPN_CONF"
+}
+
+start() {
+	echo -c 15 "Starting OpenVPN"
+
+	openvpn_load_config || exit 1
+
+	if [ "true" != "$openvpn_enabled" ] && [ "force" != "$1" ]; then
+		echo -c 160 -e "OpenVPN disabled" >&2
+		exit 1
+	fi
+
+	[ -x "$OPENVPN_BIN" ] || {
+		echo -c 160 -e "OpenVPN binary $OPENVPN_BIN not found" >&2
+		exit 1
+	}
+
+	write_client_config || exit 1
+	ensure_tun_device || exit 1
+
+	if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+		echo -c 160 -e "OpenVPN already running" >&2
+		exit 1
+	fi
+
+	echo -c 240 -e "- Launch OpenVPN client"
+	set -- --config "$OPENVPN_CONF" \
+		--writepid "$PIDFILE" \
+		--daemon \
+		--syslog openvpn
+	start-stop-daemon -S -b -m -p "$PIDFILE" -x "$OPENVPN_BIN" -- "$@"
+}
+
+stop() {
+	echo -c 15 "Stopping OpenVPN"
+
+	if [ -f "$PIDFILE" ]; then
+		start-stop-daemon -K -p "$PIDFILE" >/dev/null 2>&1
+		rm -f "$PIDFILE"
+	else
+		start-stop-daemon -K -x "$OPENVPN_BIN" >/dev/null 2>&1
+	fi
+}
+
+case "$1" in
+	force)
+		start force
+		;;
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		stop
+		start
+		;;
+	*)
+		echo "Usage: $0 {force|start|stop|restart}"
+		exit 1
+		;;
+esac
+
+exit 0

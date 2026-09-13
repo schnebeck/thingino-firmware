@@ -81,31 +81,55 @@ document.addEventListener("DOMContentLoaded", async function () {
   if (!hasMotors) {
     return;
   }
-  await ensureMotorParams();
+  const motorParams = await ensureMotorParams();
 
   const motorOverlay = $("#motor-overlay");
   if (motorOverlay) {
     motorOverlay.style.display = "";
   }
 
+  // Boards without a tilt motor (steps_tilt=0, e.g. petcam pan-only rig)
+  // get a compact left/home/right bar instead of the 8-way joystick disc.
+  // Hide the whole #motor box (not just .jst inside it) so its fixed 300px
+  // footprint doesn't leave dead space in #motor-overlay's layout when the
+  // pan bar is shown instead.
+  const hasTilt = Number(motorParams.steps_tilt) > 0;
+  const motorBox = $("#motor");
+  const panCtrl = $(".pan-ctrl");
+  if (motorBox) motorBox.style.display = hasTilt ? "" : "none";
+  if (panCtrl) panCtrl.style.display = hasTilt ? "none" : "";
+
   let timer;
   const stepMode = getPreviewControlMode() === "step";
 
   function bindStepControls() {
-    $$(".jst a.s").forEach((el) => {
+    $$(".jst a.s, .pan-ctrl .pan-btn[data-dir]").forEach((el) => {
       el.onclick = (ev) => {
         if (ev.detail === 1) {
+          // ev.currentTarget is only valid during synchronous dispatch; the
+          // browser nulls it out before this setTimeout callback runs, so
+          // the element itself (closed over from the forEach) is used instead.
+          // timer is shared across all buttons (including home, below) - a
+          // stale pending timer from an earlier tap must be cancelled here,
+          // otherwise a quick second tap (any button) leaves the first tap's
+          // move queued and it still fires afterwards.
+          clearTimeout(timer);
           timer = setTimeout(() => {
-            moveMotor(ev.target.dataset.dir, 100);
+            moveMotor(el.dataset.dir, 100);
           }, 200);
         }
       };
       el.ondblclick = (ev) => {
         if (ev.detail === 2) {
           clearTimeout(timer);
-          moveMotor(ev.target.dataset.dir, 10);
+          moveMotor(el.dataset.dir, 10);
         }
       };
+      // Without this, a touch press held just slightly too long is read by
+      // mobile browsers as a long-press on the video/image underneath and
+      // pops up its native "save image/video" menu instead of registering
+      // as a tap here.
+      el.addEventListener("contextmenu", (ev) => ev.preventDefault());
     });
   }
 
@@ -129,7 +153,7 @@ document.addEventListener("DOMContentLoaded", async function () {
       }, intervalMs);
     };
 
-    $$(".jst a.s").forEach((el) => {
+    $$(".jst a.s, .pan-ctrl .pan-btn[data-dir]").forEach((el) => {
       const stopHandler = () => stopContinuousMove();
       el.addEventListener("pointerdown", (ev) => {
         ev.preventDefault();
@@ -152,18 +176,26 @@ document.addEventListener("DOMContentLoaded", async function () {
     bindContinuousControls();
   }
 
-  $(".jst a.b").onclick = (ev) => {
-    if (ev.detail === 1) {
-      timer = setTimeout(() => {
-        moveMotor("cc");
-      }, 200);
-    }
-  };
+  $$(".jst a.b, .pan-ctrl .pan-home").forEach((el) => {
+    el.onclick = (ev) => {
+      if (ev.detail === 1) {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          moveMotor("cc");
+        }, 200);
+      }
+    };
 
-  $(".jst a.b").ondblclick = (ev) => {
-    clearTimeout(timer);
-    moveMotor("homing");
-  };
+    el.ondblclick = (ev) => {
+      clearTimeout(timer);
+      moveMotor("homing");
+    };
+  });
 
   runMotorCmd("d=j");
+
+  // Distance-based fade for #motor-overlay itself is handled centrally in
+  // preview.html (shared with #petcam-feed-overlay, since only that page
+  // knows about both plugins' overlays at once) - do not duplicate it
+  // here, the two independent mousemove listeners fought each other.
 });

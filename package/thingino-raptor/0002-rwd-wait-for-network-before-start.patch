@@ -1,0 +1,23 @@
+--- a/config/S31raptor
++++ b/config/S31raptor
+@@ -112,6 +112,20 @@
+ 	start_daemon ric
+ 	start_daemon rmr
+ 	start_daemon rmd
++
++	# rwd auto-detects its WebRTC local IP once at startup (see
++	# rwd_get_local_ip): a route-less boot (WiFi not associated/DHCP not
++	# done yet, which S31 running this early in boot does not wait for)
++	# leaves it empty, and while rwd re-detects per WHIP session, that
++	# refresh has not reliably kicked in in practice. Give the network a
++	# real chance first - up to 5s, matching the rvd ring-wait above - so
++	# the common case starts with a correct address already.
++	i=0
++	while [ $i -lt 50 ] && ! ip route get 8.8.8.8 >/dev/null 2>&1; do
++		usleep 100000
++		i=$((i + 1))
++	done
++
+ 	start_daemon rwd
+ 	start_daemon rsp
+ 	start_daemon rsr

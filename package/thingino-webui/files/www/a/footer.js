@@ -196,6 +196,14 @@
     const uptime = createElement("div");
     uptime.id = "uptime";
 
+    // Empty by default - populated by a plugin script (petcam-locate's
+    // footer-locate.js) when one is installed. Harmless placeholder
+    // otherwise, matching #uptime's own pattern of a generic slot a
+    // separate script fills in. Not named "location" - that would shadow
+    // window.location within this function.
+    const locationRow = createElement("div");
+    locationRow.id = "footer-location";
+
     const themeWrap = document.createElement("div");
     const themeToggle = document.createElement("a");
     themeToggle.href = "#";
@@ -210,6 +218,7 @@
 
     leftCol.appendChild(host);
     leftCol.appendChild(uptime);
+    leftCol.appendChild(locationRow);
     leftCol.appendChild(themeWrap);
 
     const rightCol = createElement("div", "col col-sm-7 mb-2 text-sm-end");

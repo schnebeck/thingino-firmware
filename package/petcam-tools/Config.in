@@ -1,0 +1,7 @@
+config BR2_PACKAGE_PETCAM_TOOLS
+	bool "petcam-tools"
+	depends on BR2_USE_MMU
+	help
+	  Custom stepper-motor driver (agitator) and treat-dispense-cycle
+	  script for the petcam pet feeder board. Not useful on stock camera
+	  boards without the feeder hardware.

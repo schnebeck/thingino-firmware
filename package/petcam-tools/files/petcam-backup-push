@@ -1,0 +1,42 @@
+#!/bin/sh
+# Pushes one local file to the off-site backup on the VPN helper server
+# (vpn_helper.remote in thingino.json - any VPN-reachable host works, this
+# doesn't care which VPN backend or which server), via the restricted key
+# + forced command described in backup-server-setup/petcam-backup-receive
+# (deployed separately on that server, not part of this firmware image).
+#
+# Usage: petcam-backup-push <local-file> <category> [<remote-name>]
+#   <category> is "clips", "sounds", or "emergency" - matches the forced
+#   command's allowed subdirectories exactly. <remote-name>, if given, is
+#   used as-is (any "/" flattened to "_"); otherwise the local file's own
+#   basename is used. Callers whose local path carries information the
+#   plain basename would lose (clips are stored locally as
+#   clips/<date>/<time>.mp4 - the receive script's single-level path check
+#   can't take the date subdirectory, and two different dates could share
+#   the same time-only basename) should pass an explicit flattened name.
+#
+# Best-effort: exits non-zero on any failure (VPN down, server unreachable,
+# disk full remotely) without retrying - callers that care about eventual
+# delivery (the periodic sync) re-attempt on their own next run; the
+# emergency path deliberately does not retry at all (see its own script).
+set -eu
+
+KEY=/etc/petcam-backup.key
+LOCAL_FILE="$1"
+CATEGORY="$2"
+
+REMOTE=$(jct /etc/thingino.json get vpn_helper.remote 2>/dev/null || true)
+[ -n "$REMOTE" ] && [ "$REMOTE" != "null" ] || { echo "petcam-backup-push: vpn_helper.remote not configured" >&2; exit 1; }
+
+case "$CATEGORY" in
+	clips | sounds | emergency) ;;
+	*) echo "petcam-backup-push: invalid category $CATEGORY" >&2; exit 1 ;;
+esac
+
+[ -f "$KEY" ] || dropbearkey -t ed25519 -f "$KEY" >/dev/null 2>&1
+[ -s "$LOCAL_FILE" ] || { echo "petcam-backup-push: $LOCAL_FILE missing/empty" >&2; exit 1; }
+
+remote_name="${3:-$(basename "$LOCAL_FILE")}"
+remote_name=$(printf '%s' "$remote_name" | tr '/' '_')
+
+dbclient -y -i "$KEY" "$REMOTE" "$CATEGORY/$remote_name" < "$LOCAL_FILE" 2>/dev/null

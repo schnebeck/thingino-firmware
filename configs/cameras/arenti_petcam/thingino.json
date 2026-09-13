@@ -1,0 +1,43 @@
+{
+  "motors": {
+    "gpio_invert": false,
+    "gpio_pan": "45 41 42 43",
+    "gpio_switch": -1,
+    "gpio_tilt": "",
+    "homing": true,
+    "invert_x": false,
+    "invert_y": false,
+    "is_spi": false,
+    "presets": [
+      {
+        "id": 0,
+        "x": 8400,
+        "y": 0,
+        "description": "Home"
+      }
+    ],
+    "speed_pan": 600,
+    "speed_tilt": 0,
+    "steps_pan": 16800,
+    "steps_tilt": 0
+  },
+  "location": {
+    "enabled": false
+  },
+  "vpn_helper": {
+    "remote": ""
+  },
+  "gpio": {
+    "button_reset": {
+      "pin": 62
+    },
+    "dc_motor": {
+      "pin": 57,
+      "active_low": true
+    },
+    "ircut": "53 52",
+    "mmc_cd": 38,
+    "speaker": 63,
+    "stepper_idle": "45 41 42 43 46 40 10 11"
+  }
+}

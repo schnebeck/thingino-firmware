@@ -1,0 +1,57 @@
+#!/bin/sh
+# S30petcam-record-conf -- force the [recording] section of raptor.conf into
+# "motion"-clip mode before S31raptor starts rmr, so motion/audio-alarm
+# triggers (via petcam-record-trigger) actually produce SD clips. This is
+# petcam-specific policy (not a generic thingino-raptor Kconfig feature),
+# so it lives here as a small early boot-time patch rather than going
+# through THINGINO_RAPTOR_PATCH_CONF's build-time rset() mechanism.
+#
+# raptor.conf's [recording] section ships completely empty (rmr falls back
+# to its own compiled-in defaults for any key that isn't present at all),
+# so a plain substitute-in-place sed - which only rewrites a line that's
+# already there - would silently do nothing. ensure() checks whether the
+# key exists anywhere in the section first and appends it after the
+# section header when it doesn't, replaces it in place when it does.
+
+CONF=/etc/raptor.conf
+
+ensure() {
+	section="$1"
+	key="$2"
+	value="$3"
+	grep -q "^\[$section\]" "$CONF" || return 0
+	if awk -v s="[$section]" -v k="$key" '
+		$0 == s { insec = 1; next }
+		/^\[/ { insec = 0 }
+		insec && $0 ~ "^[# ]*" k "[[:space:]]*=" { found = 1 }
+		END { exit !found }
+	' "$CONF"; then
+		sed -i "/^\[$section\]/,/^[# ]*\[/{s|^[# ]*$key = .*|$key = $value|;}" "$CONF"
+	else
+		sed -i "/^\[$section\]/a $key = $value" "$CONF"
+	fi
+}
+
+start() {
+	[ -f "$CONF" ] || return 0
+	ensure recording enabled true
+	ensure recording mode motion
+	ensure recording storage_path "/mnt/mmcblk0p1/raptor"
+	ensure recording prebuffer_sec 3
+	ensure recording clip_length_sec 60
+	ensure recording clip_max_mb 8000
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop | restart)
+		: ;;
+	*)
+		echo "Usage: $0 {start|stop|restart}" >&2
+		exit 1
+		;;
+esac
+
+exit 0

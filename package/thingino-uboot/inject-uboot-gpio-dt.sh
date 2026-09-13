@@ -56,6 +56,20 @@
 #                 codec node as ingenic,spk-gpio), so the hog does not fight
 #                 it for ownership - it only defines the level until then.
 #
+#   gpio.dc_motor - auxiliary DC-motor enable line(s) with no hardware pull
+#                 resistor, held at their idle (inactive) level through the
+#                 boot window for the same reason as gpio.speaker: left
+#                 floating, the driver circuit reads the pin as active and
+#                 the motor spins briefly at every boot. Same shapes as
+#                 gpio.speaker (bare int = active-high pin, or {pin,
+#                 active_low} object), plus a list of either for boards with
+#                 more than one such line. active_low=true rests HIGH.
+#
+#   gpio.stepper_idle - unipolar stepper phase pins (agitator/feeder axes,
+#                 not the "motors" PTZ subsystem), parked LOW/de-energised
+#                 through the boot window for the same floating-pin reason
+#                 as gpio.dc_motor. Space-separated pin list, always LOW.
+#
 # A pin that inject-uboot-mmc-dt.sh turns into a DT binding (gpio.mmc_cd ->
 # cd-gpios, single-pin gpio.mmc_power (object or bare int) -> vmmc regulator, gpio.button_reset
 # -> gpio-keys) is never hogged: a hog claims the gpio at DM init and the
@@ -242,6 +256,34 @@ else:
     sp_pin, sp_al = None, False
 if isinstance(sp_pin, int) and not isinstance(sp_pin, bool) and sp_pin >= 0:
     out.append(("spk_mute", sp_pin, 1 if sp_al else 0))
+
+# ---- gpio.dc_motor: hold auxiliary DC-motor enable line(s) idle through ---
+# the boot window, same shape/rule as gpio.speaker (mute level = idle level).
+# Added for boards with a DC motor driven by a plain enable GPIO that has no
+# hardware pull resistor: left floating during the U-Boot-to-S05gpio window,
+# the driver circuit reads it as active and the motor spins briefly at every
+# boot. active_low=true (the common case for these enable lines) rests HIGH.
+dm = root.get("gpio", {}).get("dc_motor")
+dm_items = dm if isinstance(dm, list) else [dm]
+for item in dm_items:
+    if isinstance(item, dict):
+        dm_pin, dm_al = item.get("pin"), is_true(item.get("active_low"))
+    elif isinstance(item, int) and not isinstance(item, bool):
+        dm_pin, dm_al = item, False  # short notation: bare int = active-high pin
+    else:
+        dm_pin, dm_al = None, False
+    if isinstance(dm_pin, int) and not isinstance(dm_pin, bool) and dm_pin >= 0:
+        out.append(("dc_motor_idle", dm_pin, 1 if dm_al else 0))
+
+# ---- gpio.stepper_idle: park unipolar stepper phase pins de-energised -----
+# through the boot window. Space-separated pin list, always level LOW - the
+# same de-energised convention /usr/sbin/stepper's power_down() uses, since
+# these drive a ULN2003-style transistor array with no hardware pull, not
+# the "motors" PTZ subsystem (which is not used here: it has no continuous-
+# rotation mode for the agitator/feeder axes).
+si = root.get("gpio", {}).get("stepper_idle")
+if isinstance(si, str):
+    out += [("stepper_idle", int(t), 0) for t in si.split() if t.isdigit()]
 
 # Pins inject-uboot-mmc-dt.sh turns into DT bindings - the binding's gpio
 # request must win, so these are never hogged (level 's' = skip note).

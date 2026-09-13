@@ -1,0 +1,27 @@
+{
+  "name": "petcam-locate",
+  "label": "Locate",
+  "apiVersion": 1,
+  "nav": [
+    {
+      "section": "ddTools",
+      "position": "after:Send to services",
+      "items": [
+        {
+          "label": "Locate",
+          "href": "/tool-locate.html"
+        }
+      ]
+    }
+  ],
+  "scripts": [
+    "/a/footer-locate.js"
+  ],
+  "styles": [],
+  "cgi": [
+    "/x/json-locate.cgi"
+  ],
+  "pages": [
+    "/tool-locate.html"
+  ]
+}

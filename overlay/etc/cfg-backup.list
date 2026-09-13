@@ -11,6 +11,11 @@
 # WiFi
 /etc/wpa_supplicant.conf
 
+# Custom device hostname (set via config-network.html, plain-text file
+# separate from thingino.json - a full re-flash otherwise regenerates the
+# build-time default name).
+/etc/hostname
+
 # Timezone and NTP
 /etc/TZ
 /etc/timezone
@@ -24,6 +29,14 @@
 
 # Thingino application configs
 /etc/thingino.json
+
+# Petcam-specific restricted SSH keys (each authorized on 10.1.1.1 by its
+# own public half already - losing the private half here would mean
+# regenerating a new keypair and re-registering it server-side instead of
+# just picking back up where things left off).
+/etc/petcam-tls-pull.key
+/etc/petcam-backup.key
+/etc/petcam-locate.key
 
 # You can add more paths below, one per line:
 # /etc/prudynt.json

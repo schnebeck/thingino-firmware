@@ -1,0 +1,28 @@
+{
+  "name": "audio-alarm",
+  "label": "Audio Alarm",
+  "apiVersion": 1,
+  "pages": ["/config-audio-alarm.html"],
+  "cgi": ["/x/json-audio-alarm.cgi"],
+  "nav": [
+    {
+      "section": "ddSettings",
+      "position": "after:Audio",
+      "items": [
+        {
+          "label": "Audio Alarm",
+          "href": "/config-audio-alarm.html"
+        }
+      ]
+    }
+  ],
+  "scripts": ["/a/audio-alarm-control.js"],
+  "styles": [],
+  "preview": {
+    "scripts": [],
+    "html": null
+  },
+  "featureFlags": {
+    "audio_alarm": true
+  }
+}

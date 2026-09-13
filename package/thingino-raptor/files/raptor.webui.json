@@ -73,11 +73,15 @@
         {
           "label": "Timelapse Recorder",
           "href": "/tool-timelapse.html"
+        },
+        {
+          "label": "Recordings",
+          "href": "/recordings.html"
         }
       ]
     }
   ],
-  "scripts": [],
+  "scripts": ["/a/raptor-nav-patches.js"],
   "styles": [],
   "preview": {
     "scripts": [],
@@ -97,7 +101,9 @@
     "/x/ch1.mjpg",
     "/x/ch0.jpg",
     "/x/ch1.jpg",
-    "/x/json-timelapse.cgi"
+    "/x/json-timelapse.cgi",
+    "/x/json-recordings.cgi",
+    "/x/video-link.cgi"
   ],
   "pages": [
     "/streamer-main.html",
@@ -105,6 +111,7 @@
     "/streamer-image.html",
     "/streamer-osd.html",
     "/streamer-sensor.html",
-    "/config-audio.html"
+    "/config-audio.html",
+    "/recordings.html"
   ]
 }

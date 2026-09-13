@@ -2,6 +2,7 @@ menu "thingino-libcurl"
 config BR2_PACKAGE_THINGINO_LIBCURL
 	bool "thingino-libcurl"
 	select BR2_PACKAGE_LIBCURL
+	select BR2_PACKAGE_HAS_THINGINO_LIBCURL
 	select BR2_PACKAGE_THINGINO_LIBCURL_MBEDTLS if BR2_PACKAGE_MBEDTLS
 	select BR2_PACKAGE_THINGINO_LIBCURL_OPENSSL if BR2_PACKAGE_OPENSSL
 	select BR2_PACKAGE_THINGINO_LIBCURL_WOLFSSL if BR2_PACKAGE_WOLFSSL
@@ -159,6 +160,17 @@ config BR2_PACKAGE_THINGINO_LIBCURL_TLS_NONE
 	depends on !BR2_PACKAGE_THINGINO_LIBCURL_FORCE_TLS
 
 endchoice
+
+# $(eval $(virtual-package)) in thingino-libcurl.mk (overrides the stock
+# "libcurl" package rather than building anything of its own) checks these,
+# not BR2_PACKAGE_THINGINO_LIBCURL itself - without them, any package
+# depending on thingino-libcurl fails Buildroot's dependency legality check.
+config BR2_PACKAGE_HAS_THINGINO_LIBCURL
+	bool
+
+config BR2_PACKAGE_PROVIDES_THINGINO_LIBCURL
+	string
+	default "libcurl"
 
 endif
 endmenu

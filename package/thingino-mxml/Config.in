@@ -1,6 +1,7 @@
 config BR2_PACKAGE_THINGINO_MXML
 	bool "thingino-mxml"
 	select BR2_PACKAGE_MXML
+	select BR2_PACKAGE_HAS_THINGINO_MXML
 	help
 	  Mini-XML is a small XML parsing library that you can use to
 	  read XML and XML-like data files in your application without
@@ -11,3 +12,17 @@ config BR2_PACKAGE_THINGINO_MXML
 	  version in Buildroot.
 
 	  https://www.msweet.org/mxml
+
+# $(eval $(virtual-package)) in thingino-mxml.mk checks this symbol, not
+# BR2_PACKAGE_THINGINO_MXML itself - without it, any package depending on
+# thingino-mxml fails Buildroot's dependency legality check even when this
+# option is selected.
+config BR2_PACKAGE_HAS_THINGINO_MXML
+	bool
+
+# The virtual-package infra also requires a named provider. mxml-override.mk
+# overrides the stock "mxml" package's version/config directly rather than
+# thingino-mxml building anything of its own, so "mxml" is the provider.
+config BR2_PACKAGE_PROVIDES_THINGINO_MXML
+	string
+	default "mxml" if BR2_PACKAGE_THINGINO_MXML

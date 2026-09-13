@@ -1,0 +1,22 @@
+#!/bin/sh
+# petcam-record-watch - polls the deadline written by petcam-record-trigger
+# and stops the shared SD motion-clip recording once it passes with no
+# further motion/audio-alarm triggers extending it. Run as a background
+# loop from S60petcam-record-watch.
+
+DEADLINE_FILE=/run/petcam-record-until
+
+while true; do
+	if [ -f "$DEADLINE_FILE" ]; then
+		now=$(date +%s)
+		deadline=$(cat "$DEADLINE_FILE" 2>/dev/null)
+		case "$deadline" in '' | *[!0-9]*) deadline=0 ;; esac
+		if [ "$now" -ge "$deadline" ]; then
+			# "disable", not "stop" - see petcam-record-trigger's note on why
+			# raptorctl's own start/stop can't reach rmr's clip start/stop.
+			raptorctl rmr disable >/dev/null 2>&1
+			rm -f "$DEADLINE_FILE"
+		fi
+	fi
+	sleep 1
+done

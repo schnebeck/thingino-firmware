@@ -1,0 +1,92 @@
+#!/bin/sh
+# Approximate WiFi-based geolocation, server-assisted so the camera itself
+# never needs direct internet access (it only ever talks to 10.1.1.1 over
+# the VPN, matching this project's VPN-only security posture throughout).
+#
+# 1. Scan nearby WiFi APs with iwlist (only tool actually present on this
+#    image - no modern `iw`), parse BSSID + signal quality.
+# 2. iwlist's "Signal level=N/100" is a normalized quality percentage, not
+#    dBm - geolocation APIs want dBm. Approximate with the common
+#    quality->dBm heuristic (dBm ~= quality/2 - 100, giving -100..-50):
+#    precise enough for city-block-level positioning, which is all WiFi
+#    geolocation offers anyway.
+# 3. Send the AP list to a small forced-command helper on the VPN helper
+#    server (vpn_helper.remote in thingino.json - any VPN-reachable host
+#    works, see backup-server-setup/petcam-locate-receive, deployed
+#    separately - not part of this firmware image), which has real
+#    internet access and forwards to beaconDB's public geolocate API
+#    (https://api.beacondb.net/v1/geolocate - Mozilla Location Service's
+#    now-defunct MLS/Ichnaea-compatible successor, no API key needed).
+# 4. Save the result to /run/petcam-location.json for json-locate.cgi to
+#    serve, and to /etc/thingino.json for persistence across the run
+#    directory being tmpfs.
+
+KEY=/etc/petcam-locate.key
+OUT=/run/petcam-location.json
+
+enabled=$(jct /etc/thingino.json get location.enabled 2>/dev/null)
+if [ "$enabled" != "true" ]; then
+	echo "petcam-locate: disabled (location.enabled is not true)" >&2
+	exit 1
+fi
+
+REMOTE=$(jct /etc/thingino.json get vpn_helper.remote 2>/dev/null)
+if [ -z "$REMOTE" ] || [ "$REMOTE" = "null" ]; then
+	echo "petcam-locate: vpn_helper.remote not configured" >&2
+	exit 1
+fi
+
+[ -f "$KEY" ] || dropbearkey -t ed25519 -f "$KEY" >/dev/null 2>&1
+
+# Portable POSIX awk only - this is BusyBox awk, no GNU match()-with-
+# capture-array extension, hence sub()-based extraction instead.
+aps=$(iwlist wlan0 scan 2>/dev/null | awk '
+  /Address:/ { mac = $NF }
+  /Signal level=/ {
+    line = $0
+    sub(/.*Signal level=/, "", line)
+    sub(/\/100.*/, "", line)
+    dbm = int(line / 2) - 100
+    if (mac != "") {
+      if (n++ > 0) printf ","
+      printf "{\"macAddress\":\"%s\",\"signalStrength\":%d}", mac, dbm
+      mac = ""
+    }
+  }
+' 2>/dev/null)
+
+if [ -z "$aps" ]; then
+	echo "petcam-locate: no WiFi APs seen, nothing to send" >&2
+	exit 1
+fi
+
+payload="{\"wifiAccessPoints\":[$aps]}"
+
+response=$(printf '%s' "$payload" | dbclient -y -i "$KEY" "$REMOTE" locate 2>/dev/null)
+if [ -z "$response" ]; then
+	echo "petcam-locate: no response from location helper" >&2
+	exit 1
+fi
+
+# jct needs a real file path, not stdin.
+resp_file=$(mktemp)
+printf '%s' "$response" >"$resp_file"
+lat=$(jct "$resp_file" get location.lat 2>/dev/null)
+lng=$(jct "$resp_file" get location.lng 2>/dev/null)
+accuracy=$(jct "$resp_file" get accuracy 2>/dev/null)
+rm -f "$resp_file"
+
+if [ -z "$lat" ] || [ "$lat" = "null" ]; then
+	echo "petcam-locate: helper returned no location (response: $response)" >&2
+	exit 1
+fi
+
+ts=$(date +%s)
+printf '{"lat":%s,"lng":%s,"accuracy":%s,"updated":%s}\n' \
+	"$lat" "$lng" "${accuracy:-null}" "$ts" >"$OUT"
+chmod 644 "$OUT"
+
+jct /etc/thingino.json set location.lat "$lat" >/dev/null 2>&1
+jct /etc/thingino.json set location.lng "$lng" >/dev/null 2>&1
+jct /etc/thingino.json set location.accuracy "${accuracy:-0}" >/dev/null 2>&1
+jct /etc/thingino.json set location.updated "$ts" >/dev/null 2>&1

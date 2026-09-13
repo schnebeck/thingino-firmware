@@ -24,7 +24,7 @@
 
     <section>
       <h2 class="mb-3">Send to Services</h2>
-      <p class="text-secondary mb-4">Configure where snapshots and video clips are delivered when motion is detected.</p>
+      <p class="text-secondary mb-4">Configure where snapshots and video clips are delivered when motion or a loud sound is detected. Audio Alarm sensitivity and recording length are on its own <a href="config-audio-alarm.html">settings page</a>.</p>
 
       <div class="row g-3">
         <!-- Motion Detection Card -->
@@ -43,6 +43,23 @@
               <p class="row">
                 <label class="col-4" for="motion_cooldown">Cooldown: <span id="motion_cooldown_value"></span> seconds</label>
                 <input class="col form-range" type="range" id="motion_cooldown" min="1" max="60" step="1">
+              </p>
+              <p class="row">
+                <label class="col-4" for="motion_record_secs">SD recording: <span id="motion_record_secs_value"></span>s</label>
+                <input class="col form-range" type="range" id="motion_record_secs" min="5" max="60" step="5">
+              </p>
+              <p class="row">
+                <label class="col-4" for="motion_extend_secs">Extend per repeat: <span id="motion_extend_secs_value"></span>s</label>
+                <input class="col form-range" type="range" id="motion_extend_secs" min="0" max="30" step="5">
+              </p>
+              <p class="text-secondary small">While motion keeps being detected, the SD recording keeps extending by this amount instead of cutting off after the initial length. Saved to the SD card, browsable on the <a href="recordings.html">Recordings</a> page - separate from what gets attached to notifications above.</p>
+              <p>
+                <label for="motion_email_subject">Email subject override</label>
+                <input class="form-control" type="text" id="motion_email_subject" placeholder="Leave empty to use the Email service's default subject">
+              </p>
+              <p>
+                <label for="motion_email_body">Email body override</label>
+                <textarea class="form-control" id="motion_email_body" rows="2" placeholder="Leave empty to use the Email service's default body"></textarea>
               </p>
 
               <h4 class="mb-3">Speaker</h4>
@@ -90,6 +107,7 @@
                     <tr>
                       <th>Service</th>
                       <th>On Motion</th>
+                      <th>On Audio Alarm</th>
                       <th>Photo</th>
                       <th>Video</th>
                       <th>Test</th>
@@ -103,6 +121,11 @@
                           <input class="form-check-input motion-sendto" type="checkbox" id="motion_send2email" data-service="send2email">
                         </div>
                       </td>
+                      <td>
+                        <div class="form-switch d-inline-block m-0">
+                          <input class="form-check-input audio-sendto" type="checkbox" id="audio_send2email" data-service="send2email">
+                        </div>
+                      </td>
                       <td><span id="status-email-photo" class="badge bg-secondary">…</span></td>
                       <td><span id="status-email-video" class="badge bg-secondary">…</span></td>
                       <td><button type="button" class="btn btn-outline-secondary btn-sm" data-sendto="email" data-sendto-bypass="true" title="Test email service">Test</button></td>
@@ -112,6 +135,11 @@
                       <td>
                         <div class="form-switch d-inline-block m-0">
                           <input class="form-check-input motion-sendto" type="checkbox" id="motion_send2ftp" data-service="send2ftp">
+                        </div>
+                      </td>
+                      <td>
+                        <div class="form-switch d-inline-block m-0">
+                          <input class="form-check-input audio-sendto" type="checkbox" id="audio_send2ftp" data-service="send2ftp">
                         </div>
                       </td>
                       <td><span id="status-ftp-photo" class="badge bg-secondary">…</span></td>
@@ -125,6 +153,11 @@
                           <input class="form-check-input motion-sendto" type="checkbox" id="motion_send2telegram" data-service="send2telegram">
                         </div>
                       </td>
+                      <td>
+                        <div class="form-switch d-inline-block m-0">
+                          <input class="form-check-input audio-sendto" type="checkbox" id="audio_send2telegram" data-service="send2telegram">
+                        </div>
+                      </td>
                       <td><span id="status-telegram-photo" class="badge bg-secondary">…</span></td>
                       <td><span id="status-telegram-video" class="badge bg-secondary">…</span></td>
                       <td><button type="button" class="btn btn-outline-secondary btn-sm" data-sendto="telegram" data-sendto-bypass="true" title="Test Telegram service">Test</button></td>
@@ -134,6 +167,11 @@
                       <td>
                         <div class="form-switch d-inline-block m-0">
                           <input class="form-check-input motion-sendto" type="checkbox" id="motion_send2mqtt" data-service="send2mqtt">
+                        </div>
+                      </td>
+                      <td>
+                        <div class="form-switch d-inline-block m-0">
+                          <input class="form-check-input audio-sendto" type="checkbox" id="audio_send2mqtt" data-service="send2mqtt">
                         </div>
                       </td>
                       <td><span id="status-mqtt-photo" class="badge bg-secondary">…</span></td>
@@ -147,6 +185,11 @@
                           <input class="form-check-input motion-sendto" type="checkbox" id="motion_send2webhook" data-service="send2webhook">
                         </div>
                       </td>
+                      <td>
+                        <div class="form-switch d-inline-block m-0">
+                          <input class="form-check-input audio-sendto" type="checkbox" id="audio_send2webhook" data-service="send2webhook">
+                        </div>
+                      </td>
                       <td><span id="status-webhook-photo" class="badge bg-secondary">…</span></td>
                       <td><span id="status-webhook-video" class="badge bg-secondary">…</span></td>
                       <td><button type="button" class="btn btn-outline-secondary btn-sm" data-sendto="webhook" data-sendto-bypass="true" title="Test Webhook service">Test</button></td>
@@ -156,6 +199,11 @@
                       <td>
                         <div class="form-switch d-inline-block m-0">
                           <input class="form-check-input motion-sendto" type="checkbox" id="motion_send2storage" data-service="send2storage">
+                        </div>
+                      </td>
+                      <td>
+                        <div class="form-switch d-inline-block m-0">
+                          <input class="form-check-input audio-sendto" type="checkbox" id="audio_send2storage" data-service="send2storage">
                         </div>
                       </td>
                       <td><span id="status-storage-photo" class="badge bg-secondary">…</span></td>
@@ -169,6 +217,11 @@
                           <input class="form-check-input motion-sendto" type="checkbox" id="motion_send2ntfy" data-service="send2ntfy">
                         </div>
                       </td>
+                      <td>
+                        <div class="form-switch d-inline-block m-0">
+                          <input class="form-check-input audio-sendto" type="checkbox" id="audio_send2ntfy" data-service="send2ntfy">
+                        </div>
+                      </td>
                       <td><span id="status-ntfy-photo" class="badge bg-secondary">…</span></td>
                       <td><span id="status-ntfy-video" class="badge bg-secondary">…</span></td>
                       <td><button type="button" class="btn btn-outline-secondary btn-sm" data-sendto="ntfy" data-sendto-bypass="true" title="Test Ntfy service">Test</button></td>
@@ -178,6 +231,11 @@
                       <td>
                         <div class="form-switch d-inline-block m-0">
                           <input class="form-check-input motion-sendto" type="checkbox" id="motion_send2xmpp" data-service="send2xmpp">
+                        </div>
+                      </td>
+                      <td>
+                        <div class="form-switch d-inline-block m-0">
+                          <input class="form-check-input audio-sendto" type="checkbox" id="audio_send2xmpp" data-service="send2xmpp">
                         </div>
                       </td>
                       <td><span id="status-xmpp-photo" class="badge bg-secondary">…</span></td>
@@ -191,6 +249,11 @@
                           <input class="form-check-input motion-sendto" type="checkbox" id="motion_send2gotify" data-service="send2gotify">
                         </div>
                       </td>
+                      <td>
+                        <div class="form-switch d-inline-block m-0">
+                          <input class="form-check-input audio-sendto" type="checkbox" id="audio_send2gotify" data-service="send2gotify">
+                        </div>
+                      </td>
                       <td><span id="status-gotify-photo" class="badge bg-secondary">…</span></td>
                       <td><span id="status-gotify-video" class="badge bg-secondary">…</span></td>
                       <td><button type="button" class="btn btn-outline-secondary btn-sm" data-sendto="gotify" data-sendto-bypass="true" title="Test Gotify service">Test</button></td>
@@ -202,6 +265,11 @@
                           <input class="form-check-input motion-sendto" type="checkbox" id="motion_send2pushover" data-service="send2pushover">
                         </div>
                       </td>
+                      <td>
+                        <div class="form-switch d-inline-block m-0">
+                          <input class="form-check-input audio-sendto" type="checkbox" id="audio_send2pushover" data-service="send2pushover">
+                        </div>
+                      </td>
                       <td><span id="status-pushover-photo" class="badge bg-secondary">…</span></td>
                       <td><span id="status-pushover-video" class="badge bg-secondary">…</span></td>
                       <td><button type="button" class="btn btn-outline-secondary btn-sm" data-sendto="pushover" data-sendto-bypass="true" title="Test Pushover service">Test</button></td>
@@ -211,6 +279,11 @@
                       <td>
                         <div class="form-switch d-inline-block m-0">
                           <input class="form-check-input motion-sendto" type="checkbox" id="motion_send2gphotos" data-service="send2gphotos">
+                        </div>
+                      </td>
+                      <td>
+                        <div class="form-switch d-inline-block m-0">
+                          <input class="form-check-input audio-sendto" type="checkbox" id="audio_send2gphotos" data-service="send2gphotos">
                         </div>
                       </td>
                       <td><span id="status-gphotos-photo" class="badge bg-secondary">…</span></td>

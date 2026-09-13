@@ -680,10 +680,17 @@ get_mtd_dev() { awk -F: "/\"$1\"$/{print \$1}" /proc/mtd; }
 create_config_backup() {
 	[ "$do_backup" = "true" ] || return 0
 	echo_c 112 "\nCreating config backup before upgrade"
-	if cfg-backup write 2>/dev/null; then
+	# Let cfg-backup's own stderr through (die() reasons like "backup too
+	# large" or "no valid backup found" are exactly what you need to see
+	# here) - non-fatal is right (an upgrade should proceed even if the
+	# camera has nothing worth backing up yet), but silent is not: a
+	# swallowed failure here means the restore-after-flash step has
+	# nothing to restore and nobody finds out until they notice their
+	# config is gone.
+	if cfg-backup write; then
 		echo "Config backup written to /dev/$(get_mtd_dev backup)"
 	else
-		echo_c 160 "Warning: cfg-backup failed (non-fatal)"
+		echo_c 160 "Warning: cfg-backup failed (non-fatal, see reason above)"
 	fi
 }
 # --- end helpers ---

@@ -127,7 +127,7 @@ start() {
 
 			echo "Set GPIO per motor phase"
 			set_motor_phases "h" "$gpio_pan"
-			set_motor_phases "v" "$gpio_tilt"
+			[ -n "$gpio_tilt" ] && set_motor_phases "v" "$gpio_tilt"
 			modprobe_args="$modprobe_args hst1=$hst1 hst2=$hst2 hst3=$hst3 hst4=$hst4"
 			[ -z "$vst1" ] && vst1="$hst1"
 			[ -z "$vst2" ] && vst2="$hst2"

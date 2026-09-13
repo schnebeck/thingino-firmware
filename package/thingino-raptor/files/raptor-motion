@@ -107,10 +107,43 @@ wait_stable() {
 	[ -s "$path" ]
 }
 
+# Kicks off (or extends) the shared SD archive recording - separate from
+# the short send2-attachment clip further down, and from the archive
+# concept entirely: this one is meant to always run on a real motion event,
+# whether or not any service is even configured to want a video attachment.
+record_secs() {
+	val=$(get_motion record_secs)
+	case "$val" in '' | *[!0-9]*) val=20 ;; esac
+	printf '%s' "$val"
+}
+
+trigger_archive_recording() {
+	[ -x /usr/sbin/petcam-record-trigger ] || return 0
+	petcam-record-trigger "$(record_secs)" >/dev/null 2>&1 &
+}
+
+# Called by raptor-motion-watch every few seconds while RMD keeps reporting
+# active motion (not just on the idle->active edge, which only fires once
+# per motion event) - this is what makes "keeps recording while motion
+# keeps recurring" actually true instead of capping out at record_secs.
+refresh() {
+	motor_active && return 0
+	trigger_archive_recording
+}
+
 start() {
 	if motor_active; then
 		return 0
 	fi
+
+	trigger_archive_recording
+
+	# Emergency fast-path: a few high-res stills pushed off-site right
+	# now, independent of and not waiting on the video pipeline above -
+	# see petcam-emergency-snapshot's own comment for why. Once per
+	# idle->active edge, not from refresh() (called every few seconds
+	# during sustained motion - would spam snapshots for no benefit).
+	[ -x /usr/sbin/petcam-emergency-snapshot ] && petcam-emergency-snapshot >/dev/null 2>&1 &
 
 	need_photo=false
 	need_video=false
@@ -154,14 +187,19 @@ start() {
 			printf '%s' "$status" | grep -q '"recording"[[:space:]]*:[[:space:]]*true' && already=yes
 			printf '%s' "$status" | grep -q '"clip"[[:space:]]*:[[:space:]]*true' && already=yes
 			if [ "$already" != "yes" ]; then
-				raptorctl rmr start >/dev/null 2>&1 || true
+				# "enable", not "start" - raptorctl's own generic <daemon>
+				# start/stop (process fork+exec / shutdown) shadows rmr's own
+				# clip start/stop at this exact argv spelling; enable/disable
+				# reach rmr's ctrl handler and (mode=motion) toggle the same
+				# "recording" flag start/stop document but can never trigger.
+				raptorctl rmr enable >/dev/null 2>&1 || true
 				owned=yes
 			else
 				owned=no
 			fi
 			sleep "$CLIP_SECS"
 			if [ "$owned" = "yes" ]; then
-				raptorctl rmr stop >/dev/null 2>&1 || true
+				raptorctl rmr disable >/dev/null 2>&1 || true
 				sleep 1
 			fi
 			clip=$(raptor_newest_clip 2>/dev/null || true)
@@ -181,8 +219,28 @@ start() {
 	for s in $SERVICES; do
 		[ "true" = "$(get_motion "send2${s}")" ] || continue
 		command -v "send2${s}" >/dev/null 2>&1 || continue
-		MOTION_PHOTO_FILE="$MOTION_PHOTO_FILE" MOTION_VIDEO_FILE="$MOTION_VIDEO_FILE" \
-			"send2${s}" &
+		if [ "$s" = "email" ]; then
+			# Optional per-trigger override of the shared email subject/body
+			# (motion.email_subject / motion.email_body); send2email's own
+			# -s/-b flags already exist for exactly this, just unused until now.
+			email_subject=$(get_motion email_subject)
+			email_body=$(get_motion email_body)
+			set --
+			[ -n "$email_subject" ] && set -- "$@" -s "$email_subject"
+			[ -n "$email_body" ] && set -- "$@" -b "$email_body"
+			# Links the SD archive recording this event just triggered (see
+			# trigger_archive_recording above), not the short MOTION_VIDEO_FILE
+			# attachment - a full clip is often too large/slow to attach.
+			if command -v petcam-video-link >/dev/null 2>&1; then
+				video_link=$(petcam-video-link 2>/dev/null)
+				[ -n "$video_link" ] && set -- "$@" -l "$video_link"
+			fi
+			MOTION_PHOTO_FILE="$MOTION_PHOTO_FILE" MOTION_VIDEO_FILE="$MOTION_VIDEO_FILE" \
+				send2email "$@" &
+		else
+			MOTION_PHOTO_FILE="$MOTION_PHOTO_FILE" MOTION_VIDEO_FILE="$MOTION_VIDEO_FILE" \
+				"send2${s}" &
+		fi
 		pids="$pids $!"
 	done
 
@@ -218,8 +276,11 @@ case "${1:-start}" in
 	stop)
 		stop
 		;;
+	refresh)
+		refresh
+		;;
 	*)
-		echo "Usage: $0 {start|stop}" >&2
+		echo "Usage: $0 {start|stop|refresh}" >&2
 		exit 1
 		;;
 esac

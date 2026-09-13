@@ -1,0 +1,49 @@
+#!/bin/sh
+# S60petcam-record-watch -- background loop that stops the shared SD
+# motion-clip recording once no motion/audio-alarm trigger has extended it
+# for a while. See petcam-record-trigger/petcam-record-watch.
+
+DAEMON=/usr/sbin/petcam-record-watch
+PIDFILE=/run/petcam-record-watch.pid
+NAME=petcam-record-watch
+
+start() {
+	[ -x "$DAEMON" ] || return 0
+	[ -x /usr/bin/rmr ] || return 0
+	if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+		echo "$NAME already running"
+		return 0
+	fi
+	echo "Starting $NAME..."
+	start-stop-daemon -S -b -m -p "$PIDFILE" -x "$DAEMON"
+}
+
+stop() {
+	echo "Stopping $NAME..."
+	if [ -f "$PIDFILE" ]; then
+		start-stop-daemon -K -p "$PIDFILE" -x "$DAEMON" 2>/dev/null || true
+		rm -f "$PIDFILE"
+	else
+		killall petcam-record-watch 2>/dev/null || true
+	fi
+	rm -f /run/petcam-record-until
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		stop
+		start
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}" >&2
+		exit 1
+		;;
+esac
+
+exit 0

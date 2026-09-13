@@ -544,9 +544,32 @@ loadInitialData().then(async () => {
     }
   };
 
-  // Get stream from data-stream attribute, default to ch0 if not specified
+  // Get stream from data-stream attribute, default to ch0 if not specified.
+  // A synchronous check here (not fetch/async) is deliberate: streamUrl is
+  // a const baked into startPreview()'s closure below, read once at load,
+  // so an async result arriving after that point would need every
+  // reconnect path (visibility change, backoff retry) to re-read it too.
+  // petcam-specific: over the OpenVPN tunnel this single-core SoC has no
+  // CPU headroom to spare (OpenVPN's own software AES-GCM already competes
+  // with the main stream's encode), so VPN clients default to the lighter
+  // sub-stream instead.
   const preview = $("#preview");
-  const streamChannel = preview?.dataset?.stream || "ch0";
+  let streamChannel = preview?.dataset?.stream || "ch0";
+  // Template always sets data-stream="ch0" (the pre-VPN-check default);
+  // only auto-switch when nothing more specific was requested.
+  if (streamChannel === "ch0") {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open("GET", "/x/json-network-path.cgi", false);
+      xhr.send(null);
+      if (xhr.status === 200 && JSON.parse(xhr.responseText).via_vpn) {
+        streamChannel = "ch1";
+      }
+    } catch (e) {
+      // Endpoint missing or request failed - fall back to ch0, same as
+      // before this check existed.
+    }
+  }
   const streamUrl = `/x/${streamChannel}.mjpg`;
 
   // Preview

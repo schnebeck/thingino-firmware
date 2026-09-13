@@ -1,0 +1,19 @@
+--- a/rmr/rmr_main.c
++++ b/rmr/rmr_main.c
+@@ -1028,7 +1028,15 @@
+ 		}
+ 
+ 		/* ── Continuous recording ── */
+-		bool rec = atomic_load(&st->recording);
++		/* In MODE_MOTION, st->recording IS clip_want (see clip_handling
++		 * below - MODE_BOTH uses the separate clip_recording flag for
++		 * that instead) - this block was missing the mode check clip
++		 * handling already has, so every motion clip also silently
++		 * wrote a full parallel "continuous" segment to the base
++		 * storage_path (unbounded: its own max_storage_mb was never
++		 * configured for a mode that was never supposed to use it). */
++		bool rec = atomic_load(&st->recording) &&
++			   (st->mode == RMR_MODE_CONTINUOUS || st->mode == RMR_MODE_BOTH);
+ 
+ 		/* Handle stop transition */
+ 		if (was_recording && !rec) {

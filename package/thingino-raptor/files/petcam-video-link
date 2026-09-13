@@ -1,0 +1,40 @@
+#!/bin/sh
+# petcam-video-link [relative/clip/path.mp4] - prints a URL that plays back
+# a recorded clip without requiring a login (a random token is the
+# authorization, looked up by video-link.cgi - see that file for the
+# security model). With no argument, links the newest clip.
+#
+# The base address is autodetected: the OpenVPN tunnel IP if it's up (this
+# camera is normally reached remotely through it), otherwise the primary
+# LAN IP. There's no way for the camera to know a public/DDNS hostname on
+# its own, so a recipient who is neither on the LAN nor connected to the
+# VPN won't be able to follow the link - same reachability the rest of
+# this camera's UI already assumes for remote access.
+
+TOKEN_FILE=/etc/petcam-video-tokens
+STORAGE_PATH=$(raptorctl config get recording storage_path 2>/dev/null | tr -d '\r\n"')
+[ -n "$STORAGE_PATH" ] || STORAGE_PATH=/mnt/mmcblk0p1/raptor
+BASE="$STORAGE_PATH/clips"
+
+rel="$1"
+if [ -z "$rel" ]; then
+	newest=$(find "$BASE" -type f -name '*.mp4' 2>/dev/null | sort -r | head -n1)
+	[ -n "$newest" ] || exit 1
+	rel=${newest#"$BASE"/}
+fi
+
+[ -f "$BASE/$rel" ] || exit 1
+
+token=$(head -c 16 /dev/urandom | hexdump -e '16/1 "%02x"')
+echo "$token $rel" >>"$TOKEN_FILE"
+# Keep the token file from growing without bound - only the most recent
+# links need to stay valid.
+tail -n 200 "$TOKEN_FILE" >"$TOKEN_FILE.tmp" && mv "$TOKEN_FILE.tmp" "$TOKEN_FILE"
+
+ip=$(ip -4 addr show tun0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n1)
+if [ -z "$ip" ]; then
+	ip=$(ip -4 addr show 2>/dev/null | awk '/inet / && !/127\.0\.0/ {split($2,a,"/"); print a[1]; exit}')
+fi
+[ -n "$ip" ] || exit 1
+
+printf 'http://%s/x/video-link.cgi?token=%s\n' "$ip" "$token"

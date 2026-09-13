@@ -135,7 +135,7 @@ start() {
 	if have_certs; then
 		echo "SSL certificates found, attempting to start with SSL support..."
 
-		DAEMON_ARGS_SSL="$(build_uhttpd_args "$UHTTPD_DOCROOT" "$UHTTPD_HTTP_LISTEN" "$UHTTPD_HTTPS_LISTEN" "$UHTTPD_ERROR_HANDLER")"
+		DAEMON_ARGS_SSL="$(build_uhttpd_args "$UHTTPD_DOCROOT" "$UHTTPD_HTTP_LISTEN" "$UHTTPD_HTTPS_LISTEN" "$UHTTPD_ERROR_HANDLER") -q"
 
 		# Start uhttpd with SSL
 		echo "/usr/bin/$DAEMON $DAEMON_ARGS_SSL" >&2

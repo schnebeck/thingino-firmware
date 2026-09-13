@@ -17,6 +17,7 @@ Where:
 	-t address   Recipient's email address
 	-s subject   Subject line
 	-b body      Letter body
+	-l url       Video playback link, appended to whatever body is used
 	-k           Ignore SSL certificate validity
 	-v           Verbose output
 	-S           Send photo
@@ -39,14 +40,16 @@ read_config() {
 	to_name=$(get_value to_name)
 	trust_cert=$(get_value trust_cert)
 	use_ssl=$(get_value use_ssl)
+	starttls=$(get_value starttls)
 	username=$(get_value username)
 }
 
 read_config
 
-while getopts b:f:h:kp:s:t:u:vP:SV flag; do
+while getopts b:f:h:kl:p:s:t:u:vP:SV flag; do
 	case "$flag" in
 		b) body=$OPTARG ;;
+		l) video_link=$OPTARG ;;
 		f) from_address=$OPTARG ;;
 		h) host=$OPTARG ;;
 		k) use_ssl="true" ;;
@@ -88,6 +91,10 @@ if [ -z "$body" ]; then
 	exit 1
 fi
 
+[ -n "$video_link" ] && body="${body}
+
+Watch the recording: ${video_link}"
+
 if ! echo "$from_address" | grep -E -q $EMAIL_FORMAT >/dev/null; then
 	echo_error "Invalid sender email address format"
 	exit 1
@@ -112,7 +119,14 @@ command="$command --mail-from $from_address --mail-rcpt $to_address"
 [ -n "$username" ] && [ -n "$password" ] && command="$command --user '$username:$password'"
 
 if [ "true" = "$use_ssl" ]; then
+	# Implicit TLS from the first byte of the connection (typically port 465).
 	command="$command --url smtps://$host:$port --ssl-reqd"
+	[ "true" = "$trust_cert" ] && command="$command --insecure"
+elif [ "true" = "$starttls" ]; then
+	# Plain connection upgraded to TLS via the SMTP STARTTLS command
+	# (typically port 587). --ssl-reqd makes curl abort rather than fall
+	# back to sending in the clear if the server doesn't offer STARTTLS.
+	command="$command --url smtp://$host:$port --ssl-reqd"
 	[ "true" = "$trust_cert" ] && command="$command --insecure"
 else
 	command="$command --url smtp://$host:$port"

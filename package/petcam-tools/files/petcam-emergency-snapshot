@@ -1,0 +1,32 @@
+#!/bin/sh
+# Emergency fast-path: grabs a few high-res JPEG stills and pushes each
+# off-site immediately, in case the camera is about to be carried off or
+# lose power - there's no time for video, and video isn't the point here.
+# Uses raptorctl's native local snapshot command (see raptor's
+# www/x/dl0.jpg CGI for the same call) which reads from an independent
+# JPEG encoder channel - it runs fine regardless of whether an rmr
+# recording is active on the H.264 channel at the same time, no waiting.
+#
+# Called (backgrounded, fire-and-forget) from motion and audio-alarm
+# triggers - see raptor-motion's trigger_archive_recording() and
+# audio-alarm.c's trigger_alarm(). Deliberately no retries: if the push
+# fails because power/network is already going, that attempt is a loss
+# worth accepting rather than a loop that delays the next shot or holds a
+# stale process open past the point the device is gone.
+
+N=3
+SPACING_SEC=1
+
+i=0
+while [ "$i" -lt "$N" ]; do
+	# date +%N (nanoseconds) isn't supported by BusyBox date - the loop
+	# index makes the name unique instead (the "$ts" second could
+	# otherwise repeat across iterations if a grab is fast).
+	ts="$(date +%s)-$i"
+	tmp="/tmp/emergency-$ts.jpg"
+	if raptorctl rvd save jpeg "$tmp" 0 >/dev/null 2>&1 && [ -s "$tmp" ]; then
+		(petcam-backup-push "$tmp" emergency "emergency-$ts.jpg" >/dev/null 2>&1; rm -f "$tmp") &
+	fi
+	i=$((i + 1))
+	[ "$i" -lt "$N" ] && sleep "$SPACING_SEC"
+done

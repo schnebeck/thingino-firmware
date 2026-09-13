@@ -1,0 +1,10 @@
+config BR2_PACKAGE_PETCAM_AUDIO_ALARM
+	bool "petcam-audio-alarm"
+	depends on BR2_USE_MMU
+	depends on BR2_PACKAGE_THINGINO_RAPTOR
+	help
+	  Baby-monitor style audio watchdog: reads the live mic feed via the
+	  Raptor "rac" tool, decodes it, and fires send2 alerts (email etc.)
+	  plus an rmr recording on a sustained loud-sound excursion above the
+	  room's rolling ambient level. Requires thingino-raptor (rac, rmr,
+	  send2*).

@@ -47,6 +47,15 @@ sleep_interval() {
 	sleep 1
 }
 
+# Ticks per ~5s while active, for the refresh() call below - keeps the
+# shared SD-archive recording's deadline pushed out for as long as RMD
+# keeps reporting motion, not just at the one-shot start edge. Cheap poll
+# interval (500ms default) but refresh() itself shells out to raptorctl,
+# so this is throttled rather than called on every single iteration.
+REFRESH_EVERY=$((5000 / INTERVAL))
+[ "$REFRESH_EVERY" -ge 1 ] 2>/dev/null || REFRESH_EVERY=1
+active_ticks=0
+
 last=idle
 while true; do
 	if ! pidof rmd >/dev/null 2>&1; then
@@ -62,10 +71,17 @@ while true; do
 	if [ "$current" != "$last" ]; then
 		if [ "$current" = "active" ] && [ "$last" != "active" ]; then
 			[ -x "$HOOK" ] && "$HOOK" start
+			active_ticks=0
 		elif [ "$current" = "idle" ] && [ "$last" = "active" ]; then
 			[ -x "$HOOK" ] && "$HOOK" stop
 		fi
 		last=$current
+	elif [ "$current" = "active" ]; then
+		active_ticks=$((active_ticks + 1))
+		if [ "$active_ticks" -ge "$REFRESH_EVERY" ]; then
+			[ -x "$HOOK" ] && "$HOOK" refresh
+			active_ticks=0
+		fi
 	fi
 	sleep_interval
 done

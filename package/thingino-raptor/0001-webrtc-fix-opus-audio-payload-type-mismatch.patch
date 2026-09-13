@@ -1,0 +1,33 @@
+--- a/rwd/rwd_sdp.c
++++ b/rwd/rwd_sdp.c
+@@ -348,6 +348,13 @@
+ 				 wc == RWD_CODEC_PCMU ? "PCMU" : "PCMA");
+ #endif
+ 		}
++		/* Opus PT must echo what the browser itself offered for opus/48000/2
++		 * (like video already does with c->offer.video_pt) - a browser will
++		 * not decode/route RTP carrying a PT it never offered, so sending
++		 * back a fixed RWD_AUDIO_PT here silently drops all audio even
++		 * though the server-side capture/encode/send pipeline is fine. */
++		if (wc == RWD_CODEC_OPUS && c->offer.audio_pt >= 0)
++			wpt = c->offer.audio_pt;
+ 		APPEND("m=audio %d UDP/TLS/RTP/SAVPF %d", srv->udp_port, wpt);
+ 		APPEND("c=IN %s %s", ip_ver, srv->local_ip);
+ 		APPEND("a=rtcp-mux");
+--- a/rwd/rwd_media.c
++++ b/rwd/rwd_media.c
+@@ -359,7 +359,13 @@
+ 		if (udp_a.self) {
+ 			c->srtp_audio = compy_transport_srtp(udp_a, suite, &send_key);
+ 
+-			int audio_pt = srv->wire_pt;
++			/* Opus PT must echo what this browser offered for opus
++			 * (mirrors the same fix in rwd_sdp.c's answer generation) -
++			 * srv->wire_pt is a server-wide default and won't match a
++			 * browser whose own opus PT differs from RWD_AUDIO_PT. */
++			int audio_pt = (srv->wire_codec == RWD_CODEC_OPUS && c->offer.audio_pt >= 0)
++					       ? c->offer.audio_pt
++					       : srv->wire_pt;
+ 			int audio_clock = srv->wire_clock;
+ 			c->rtp_audio = Compy_RtpTransport_new(c->srtp_audio, (uint8_t)audio_pt,
+ 							      audio_clock);

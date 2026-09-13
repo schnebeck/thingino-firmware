@@ -1,0 +1,33 @@
+{
+  "name": "openvpn",
+  "label": "OpenVPN Client",
+  "apiVersion": 1,
+  "nav": [
+    {
+      "section": "ddSettings",
+      "position": "after:WireGuard VPN",
+      "items": [
+        {
+          "label": "OpenVPN Client",
+          "href": "/config-openvpn.html"
+        }
+      ]
+    }
+  ],
+  "scripts": [],
+  "styles": [],
+  "preview": {
+    "scripts": [],
+    "html": null
+  },
+  "featureFlags": {
+    "openvpn": true
+  },
+  "cgi": [
+    "/x/json-config-openvpn.cgi",
+    "/x/json-openvpn.cgi"
+  ],
+  "pages": [
+    "/config-openvpn.html"
+  ]
+}

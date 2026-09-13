@@ -1,0 +1,15 @@
+--- a/rmr/rmr_main.c
++++ b/rmr/rmr_main.c
+@@ -277,6 +277,12 @@
+ 			  st->clip_bytes);
+ 		st->clip_fd = -1;
+ 	}
++	/* Unlike continuous mode (which enforces its limit on every segment
++	 * rotation, see the "recording"/clip_length_sec close path above),
++	 * nothing ever called this for clip_storage - clip_max_mb was read
++	 * from config and otherwise ignored, so motion clips accumulated
++	 * without bound regardless of the configured cap. */
++	rmr_storage_enforce_limit(st->clip_storage);
+ }
+ 
+ /* ── Timelapse file management ── */

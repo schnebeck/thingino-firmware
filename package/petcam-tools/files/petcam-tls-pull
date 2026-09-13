@@ -1,0 +1,83 @@
+#!/bin/sh
+# Pulls the current Let's Encrypt cert+key for this camera from the VPN
+# helper server and installs it for uhttpd, replacing the self-signed cert
+# S02ssl would otherwise generate.
+#
+# The camera holds its own ed25519 keypair (generated on first run below,
+# one per physical device - never shipped in the firmware image itself).
+# The matching authorized_keys entry on the server is forced-command
+# restricted to emit exactly this tar stream, nothing else - a stolen key
+# only ever yields these two files, never a shell.
+#
+# Runs from petcam-vpn-onconnect (VPN-backend-agnostic: works the same
+# whether the tunnel is OpenVPN, WireGuard, or anything else - it only
+# cares that the configured remote host becomes reachable) and from a
+# periodic cron fallback in case an on-connect run is ever missed, since
+# this camera is normally powered off/on and VPN-connected rather than
+# always up: a certbot renewal that happens while the camera is offline is
+# picked up on the next reconnect instead of being missed until some
+# arbitrary retry.
+#
+# Idempotent and safe to run repeatedly: skips the restart entirely if the
+# fetched cert is byte-identical to what's installed, and rolls back to the
+# previous cert+key if uhttpd fails to come back up afterwards - a bad pull
+# must never leave the camera's web UI unreachable, since that may be the
+# only way to reach it at all.
+
+KEY=/etc/petcam-tls-pull.key
+REMOTE=$(jct /etc/thingino.json get vpn_helper.remote 2>/dev/null)
+[ -n "$REMOTE" ] && [ "$REMOTE" != "null" ] || exit 0
+CERT_PATH=/etc/ssl/certs/uhttpd.crt
+KEY_PATH=/etc/ssl/private/uhttpd.key
+BACKUP_CERT=/etc/ssl/certs/uhttpd.crt.bak
+BACKUP_KEY=/etc/ssl/private/uhttpd.key.bak
+
+log() { logger -t petcam-tls-pull "$1"; }
+
+[ -f "$KEY" ] || dropbearkey -t ed25519 -f "$KEY" >/dev/null 2>&1
+
+TMPDIR=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMPDIR"' EXIT
+
+if ! dbclient -y -i "$KEY" "$REMOTE" pull 2>/dev/null | tar -xf - -C "$TMPDIR" 2>/dev/null; then
+	log "pull failed - VPN down or server unreachable"
+	exit 1
+fi
+
+[ -s "$TMPDIR/fullchain.pem" ] && [ -s "$TMPDIR/privkey.pem" ] || {
+	log "pull returned empty/missing files, ignoring"
+	exit 1
+}
+head -1 "$TMPDIR/fullchain.pem" | grep -q "BEGIN CERTIFICATE" || {
+	log "fullchain.pem doesn't look like a PEM certificate, ignoring"
+	exit 1
+}
+head -1 "$TMPDIR/privkey.pem" | grep -q "BEGIN.*PRIVATE KEY" || {
+	log "privkey.pem doesn't look like a PEM private key, ignoring"
+	exit 1
+}
+
+if [ -f "$CERT_PATH" ] && diff -q "$TMPDIR/fullchain.pem" "$CERT_PATH" >/dev/null 2>&1; then
+	exit 0
+fi
+
+mkdir -p "$(dirname "$CERT_PATH")" "$(dirname "$KEY_PATH")"
+[ -f "$CERT_PATH" ] && cp "$CERT_PATH" "$BACKUP_CERT"
+[ -f "$KEY_PATH" ] && cp "$KEY_PATH" "$BACKUP_KEY"
+
+cp "$TMPDIR/fullchain.pem" "$CERT_PATH" && chmod 644 "$CERT_PATH"
+cp "$TMPDIR/privkey.pem" "$KEY_PATH" && chmod 600 "$KEY_PATH"
+
+/etc/init.d/S60uhttpd restart >/dev/null 2>&1
+sleep 1
+
+if curl -k -s -o /dev/null --max-time 5 https://127.0.0.1/; then
+	log "installed new certificate, uhttpd restarted OK"
+	exit 0
+fi
+
+log "uhttpd failed to come back up with new certificate, rolling back"
+[ -f "$BACKUP_CERT" ] && cp "$BACKUP_CERT" "$CERT_PATH" && chmod 644 "$CERT_PATH"
+[ -f "$BACKUP_KEY" ] && cp "$BACKUP_KEY" "$KEY_PATH" && chmod 600 "$KEY_PATH"
+/etc/init.d/S60uhttpd restart >/dev/null 2>&1
+exit 1

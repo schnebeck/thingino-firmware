@@ -344,6 +344,64 @@
     return group;
   }
 
+  // Audio Alarm's own enable/disable + active-state wiring lives in
+  // /a/audio-alarm-control.js (loaded only when the petcam-audio-alarm
+  // package is installed, via its own webui.json scripts entry) - this
+  // function only builds the button shell, matching how the VPN button
+  // above is also gated/plugin-specific rather than a generic framework
+  // feature.
+  function createAudioAlarmButton() {
+    const group = document.createElement("div");
+    group.className = "btn-group";
+    group.setAttribute("role", "group");
+
+    const button = createButton({
+      id: "audio-alarm",
+      title: "Audio Alarm",
+      icon: "bi bi-soundwave",
+      label: "Audio Alarm",
+    });
+
+    const toggle = createButton({
+      className: "btn btn-secondary dropdown-toggle dropdown-toggle-split",
+      title: "Audio Alarm options",
+      attributes: {
+        "data-bs-toggle": "dropdown",
+        "aria-expanded": "false",
+      },
+      label: "",
+    });
+    const srOnly = document.createElement("span");
+    srOnly.className = "visually-hidden";
+    srOnly.textContent = "Toggle audio alarm menu";
+    toggle.appendChild(srOnly);
+
+    const menu = document.createElement("ul");
+    menu.className = "dropdown-menu";
+    const item = document.createElement("li");
+    const link = document.createElement("a");
+    link.className = "dropdown-item";
+    link.href = "/config-audio-alarm.html";
+    link.title = "Audio Alarm configuration";
+    if (isCurrentPath("/config-audio-alarm.html")) {
+      link.classList.add("active");
+      link.setAttribute("aria-current", "page");
+    }
+    appendLabelWithIcon(
+      link,
+      "bi bi-gear",
+      "Audio Alarm configuration",
+      "Audio Alarm settings",
+    );
+    item.appendChild(link);
+    menu.appendChild(item);
+
+    group.appendChild(button);
+    group.appendChild(toggle);
+    group.appendChild(menu);
+    return group;
+  }
+
   function createPrivacyModeButton() {
     const group = document.createElement("div");
     group.className = "btn-group";
@@ -621,14 +679,34 @@
     return menu;
   }
 
-  function createWireGuardButton() {
+  // Points at whichever VPN client is actually installed - a camera only
+  // ever ships one (OpenVPN and WireGuard are alternatives, not both), so
+  // this always resolves to exactly one page/title rather than needing a
+  // per-VPN button. Falls back to WireGuard's naming if somehow both flags
+  // are set, since that was this button's original (sole) behavior.
+  function vpnTarget(uiConfig) {
+    var device = uiConfig.device || {};
+    if (device.openvpn) {
+      return { id: "openvpn", title: "OpenVPN", page: "/config-openvpn.html" };
+    }
+    if (device.wireguard) {
+      return {
+        id: "wireguard",
+        title: "WireGuard VPN",
+        page: "/config-wireguard.html",
+      };
+    }
+    return null;
+  }
+
+  function createVPNButton(target) {
     const group = document.createElement("div");
     group.className = "btn-group";
     group.setAttribute("role", "group");
 
     const button = createButton({
-      id: "wireguard",
-      title: "WireGuard VPN",
+      id: target.id,
+      title: target.title,
       icon: "bi bi-shield-lock",
       label: "VPN",
     });
@@ -652,16 +730,16 @@
     const item = document.createElement("li");
     const link = document.createElement("a");
     link.className = "dropdown-item";
-    link.href = "/config-wireguard.html";
-    link.title = "WireGuard configuration";
-    if (isCurrentPath("/config-wireguard.html")) {
+    link.href = target.page;
+    link.title = target.title + " configuration";
+    if (isCurrentPath(target.page)) {
       link.classList.add("active");
       link.setAttribute("aria-current", "page");
     }
     appendLabelWithIcon(
       link,
       "bi bi-gear",
-      "WireGuard configuration",
+      target.title + " configuration",
       "VPN settings",
     );
     item.appendChild(link);
@@ -729,15 +807,22 @@
     motionBtn.classList.add("flex-fill");
     bar.appendChild(motionBtn);
 
+    var uiConfig = window.thinginoUIConfig || {};
+    if (uiConfig.device && uiConfig.device.audio_alarm) {
+      var audioAlarmBtn = createAudioAlarmButton();
+      audioAlarmBtn.classList.add("flex-fill");
+      bar.appendChild(audioAlarmBtn);
+    }
+
     const privacyBtn = createPrivacyModeButton();
     privacyBtn.classList.add("flex-fill");
     bar.appendChild(privacyBtn);
 
-    var uiConfig = window.thinginoUIConfig || {};
-    if (uiConfig.device && uiConfig.device.wireguard) {
-      var wireguardBtn = createWireGuardButton();
-      wireguardBtn.classList.add("flex-fill");
-      bar.appendChild(wireguardBtn);
+    var vpnT = vpnTarget(uiConfig);
+    if (vpnT) {
+      var vpnBtn = createVPNButton(vpnT);
+      vpnBtn.classList.add("flex-fill");
+      bar.appendChild(vpnBtn);
     }
 
     const sendBtn = createSendButton();

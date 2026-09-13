@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>thingino · Raptor WebRTC preview</title>
+  <title>thingino · Live View</title>
   <script src="/a/theme-init.js"></script>
   <link rel="icon" type="image/svg+xml" href="/a/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -46,13 +46,14 @@
       <div class="card mb-3">
         <div class="card-header">
           <div>
-            <h2 class="card-title mb-0">Raptor WebRTC Live View</h2>
-            <small>Native WebRTC client (no iframe)</small>
+            <h2 class="card-title mb-0">Live View</h2>
           </div>
           <div class="preview-header-actions">
             <select class="form-select form-select-sm" id="webrtc-stream" title="Select stream" style="width:auto; min-width: 140px;">
               <option value="0">Main stream</option>
-              <option value="1">Sub stream</option>
+              <option value="1" data-bitrate="1500000" data-fps="25">Sub stream</option>
+              <option value="1" data-bitrate="500000" data-fps="15">Sub stream (data-saving)</option>
+              <option value="1" data-bitrate="150000" data-fps="8">Sub stream (minimal)</option>
             </select>
             <button type="button" class="btn btn-outline-secondary" id="webrtc-connect" title="Connect/Disconnect WebRTC stream">
               <i class="bi bi-play-circle"></i> Connect
@@ -63,11 +64,15 @@
             <button type="button" class="btn btn-outline-secondary" id="webrtc-talk" title="Push-to-talk (hold to transmit mic)" style="display:none;">
               <i class="bi bi-mic"></i> Hold to Talk
             </button>
+            <button type="button" class="btn btn-outline-secondary" id="mjpeg-fallback" title="Plain MJPEG stream over HTTP - reaches the camera on any network path, unlike WebRTC which only offers one fixed local address as ICE candidate">
+              <i class="bi bi-broadcast"></i> MJPEG Fallback
+            </button>
           </div>
         </div>
         <div class="card-body">
           <div class="raptor-video-wrap">
             <video id="raptor-webrtc-video" autoplay muted playsinline></video>
+            <img id="raptor-mjpeg-fallback" alt="MJPEG stream" style="display:none;width:100%;height:100%;object-fit:contain;">
             <div class="position-absolute top-50 start-50 translate-middle text-center" id="webrtc-connecting-overlay" style="display:none;">
               <div class="spinner-border text-light mb-2" role="status" style="width:3rem;height:3rem;">
                 <span class="visually-hidden">Connecting...</span>
@@ -77,6 +82,7 @@
             <!-- THINGINO_PLUGIN_PREVIEW_BODY -->
           </div>
           <div class="raptor-hint mt-2" id="webrtc-status"></div>
+          <div class="d-flex gap-1 flex-wrap mt-2" id="sound-buttons-bar" style="display:none"></div>
         </div>
       </div>
       <div class="preview-endpoints text-center" id="preview-endpoints">
@@ -109,8 +115,10 @@
     const talkButton = document.getElementById("webrtc-talk");
     const streamSelect = document.getElementById("webrtc-stream");
     const status = document.getElementById("webrtc-status");
+    const mjpegImg = document.getElementById("raptor-mjpeg-fallback");
+    const mjpegButton = document.getElementById("mjpeg-fallback");
 
-    if (!video || !connectButton || !muteButton || !talkButton || !streamSelect || !status) {
+    if (!video || !connectButton || !muteButton || !talkButton || !streamSelect || !status || !mjpegImg || !mjpegButton) {
       return;
     }
 
@@ -124,9 +132,60 @@
     let isConnecting = false;
     let disconnectTimer = null;
     let globalPttActive = false;
+    let mjpegActive = false;
+
+    function stopMjpeg() {
+      if (!mjpegActive) {
+        return;
+      }
+      mjpegActive = false;
+      mjpegImg.src = "";
+      mjpegImg.style.display = "none";
+      video.style.display = "";
+      mjpegButton.classList.remove("btn-success");
+      mjpegButton.classList.add("btn-outline-secondary");
+    }
+
+    async function startMjpeg(auto) {
+      if (pc) {
+        await stopWebrtc();
+      }
+      const channel = streamSelect.value === "1" ? "ch1" : "ch0";
+      mjpegImg.src = `/x/${channel}.mjpg?_=${Date.now()}`;
+      video.style.display = "none";
+      mjpegImg.style.display = "";
+      mjpegActive = true;
+      mjpegButton.classList.remove("btn-outline-secondary");
+      mjpegButton.classList.add("btn-success");
+      setStatus(auto ? "WebRTC unreachable on this network - showing plain MJPEG instead" : "MJPEG stream (reaches any network path)");
+    }
 
     function setStatus(message) {
       status.textContent = message;
+    }
+
+    // Applies the picked Quality option's bitrate/fps to the underlying
+    // encoder channel right now, on demand - the channel itself is always
+    // running (H.264 hardware encoder channels aren't cheap to spin up per
+    // viewer), but its bitrate/fps only get retuned to a given preset the
+    // moment someone actually picks it, not kept at every preset at once.
+    async function applyStreamQuality() {
+      const option = streamSelect.options[streamSelect.selectedIndex];
+      const bitrate = option && option.dataset.bitrate;
+      const fps = option && option.dataset.fps;
+      if (!bitrate || !fps) return;
+      try {
+        await fetch(
+          `/x/set-stream-quality.cgi?${new URLSearchParams({
+            stream: option.value,
+            bitrate,
+            fps,
+          }).toString()}`,
+        );
+      } catch (error) {
+        // best effort - stream still plays at whatever the channel is
+        // currently tuned to if this fails
+      }
     }
 
     function normalizeSdp(rawSdp) {
@@ -168,7 +227,6 @@
         : '<i class="bi bi-play-circle"></i> Connect';
       muteButton.style.display = connected ? "" : "none";
       talkButton.style.display = connected ? "" : "none";
-      streamSelect.disabled = connected;
       if (connected) setConnectingUi(false);
     }
 
@@ -336,6 +394,7 @@
           setStatus(`PC: ${pc.connectionState} / ICE: ${pc.iceConnectionState}`);
           if (pc.connectionState === "failed") {
             stopWebrtc("Connection failed");
+            startMjpeg(true);
           }
         };
 
@@ -346,6 +405,7 @@
           setStatus(`ICE: ${pc.iceConnectionState}`);
           if (pc.iceConnectionState === "failed") {
             stopWebrtc("ICE failed");
+            startMjpeg(true);
             return;
           }
           if (pc.iceConnectionState === "disconnected") {
@@ -355,6 +415,7 @@
             disconnectTimer = setTimeout(() => {
               if (pc && pc.iceConnectionState === "disconnected") {
                 stopWebrtc("ICE disconnected (timeout)");
+                startMjpeg(true);
               }
             }, 6000);
             return;
@@ -366,6 +427,7 @@
         };
 
         const stream = streamSelect.value || "0";
+        await applyStreamQuality();
         const maxWhipAttempts = 3;
         let response = null;
         for (let attempt = 1; attempt <= maxWhipAttempts; attempt += 1) {
@@ -404,11 +466,13 @@
           }
 
           await stopWebrtc(`Connect failed: WHIP proxy returned ${response.status}${details ? `: ${details}` : ""}`);
+          startMjpeg(true);
           return;
         }
 
         if (!response || !response.ok) {
           await stopWebrtc("Connect failed: WHIP did not establish after retries");
+          startMjpeg(true);
           return;
         }
 
@@ -445,6 +509,7 @@
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await stopWebrtc(`Connect failed: ${message}`);
+        startMjpeg(true);
       } finally {
         isConnecting = false;
       }
@@ -477,16 +542,30 @@
 
     streamSelect.addEventListener("change", () => {
       sessionStorage.setItem("raptor.webrtc_stream", streamSelect.value || "0");
-      if (pc) {
+      if (mjpegActive) {
+        startMjpeg(false);
+      } else if (pc) {
         stopWebrtc("Switching stream...").then(startWebrtc);
       }
     });
 
     connectButton.addEventListener("click", () => {
+      if (mjpegActive) {
+        stopMjpeg();
+      }
       if (pc) {
         stopWebrtc();
       } else {
         startWebrtc();
+      }
+    });
+
+    mjpegButton.addEventListener("click", () => {
+      if (mjpegActive) {
+        stopMjpeg();
+        startWebrtc();
+      } else {
+        startMjpeg(false);
       }
     });
 
@@ -561,13 +640,74 @@
     setStatus("Connecting...");
     startWebrtc().catch((err) => {
       console.warn("Auto-connect failed:", err);
-      setStatus("Auto-connect failed. Click Connect to try again.");
+      startMjpeg(true);
     });
 
     window.addEventListener("pagehide", () => {
       if (pc || sessionResource) {
         stopWebrtc("Disconnected");
       }
+      stopMjpeg();
+    });
+  })();
+</script>
+<script>
+  // Proximity fade for the overlay controls sitting on top of the video
+  // (PTZ joystick, feeder button - each its own plugin, glued together
+  // here since only this page knows about both). Mouse-only: touch
+  // devices have no meaningful "distance to cursor", so they keep their
+  // existing constant faint CSS opacity (main.css's @media (hover: hover)
+  // gate) untouched. While the mouse is anywhere in the video frame, each
+  // control's opacity scales smoothly from a faint baseline up toward -
+  // but never quite reaching - fully solid as the cursor nears it, over a
+  // fairly generous radius (a fraction of the frame's diagonal) rather
+  // than a tiny hover-hitbox; leaving the frame entirely reverts to the
+  // CSS default (fully hidden) by simply removing the inline override.
+  (function () {
+    if (!window.matchMedia || !window.matchMedia("(hover: hover) and (pointer: fine)").matches) {
+      return;
+    }
+    const frame = document.querySelector(".raptor-video-wrap");
+    if (!frame) return;
+    const targets = ["motor-overlay", "petcam-feed-overlay"]
+      .map((id) => document.getElementById(id))
+      .filter(Boolean);
+    if (!targets.length) return;
+
+    const MIN_OPACITY = 0.25; // baseline as soon as the mouse enters the frame
+    const MAX_OPACITY = 0.9; // never fully solid, even right on top of it
+    const RADIUS_DIVISOR = 3.5; // fraction of the frame's diagonal the fade spans
+
+    function fadeRadius() {
+      const r = frame.getBoundingClientRect();
+      return Math.hypot(r.width, r.height) / RADIUS_DIVISOR;
+    }
+
+    function updateFade(ev) {
+      const maxDist = fadeRadius();
+      targets.forEach((el) => {
+        const r = el.getBoundingClientRect();
+        const dist = Math.hypot(
+          ev.clientX - (r.left + r.width / 2),
+          ev.clientY - (r.top + r.height / 2),
+        );
+        const closeness = Math.max(0, Math.min(1, 1 - dist / maxDist));
+        const opacity = MIN_OPACITY + closeness * (MAX_OPACITY - MIN_OPACITY);
+        el.style.opacity = String(opacity);
+      });
+    }
+
+    // mouseenter alone (mouse arrives and stops without moving further)
+    // does not imply a mousemove event follows - without also binding
+    // here, the CSS default (opacity 0) would keep showing until the
+    // mouse actually moves again inside the frame.
+    frame.addEventListener("mouseenter", updateFade);
+    frame.addEventListener("mousemove", updateFade);
+
+    frame.addEventListener("mouseleave", () => {
+      targets.forEach((el) => {
+        el.style.opacity = "";
+      });
     });
   })();
 </script>

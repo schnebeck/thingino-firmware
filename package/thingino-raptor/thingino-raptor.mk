@@ -182,6 +182,19 @@ define THINGINO_RAPTOR_INSTALL_TARGET_CMDS
 	# Install same-origin WHIP proxy used by native preview (no iframe).
 	$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/www/x/webrtc-whip.cgi \
 		$(TARGET_DIR)/var/www/x/webrtc-whip.cgi
+	# On-demand bitrate/fps preset switch for the preview page's Quality selector.
+	$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/www/x/set-stream-quality.cgi \
+		$(TARGET_DIR)/var/www/x/set-stream-quality.cgi
+	# Mic/speaker mixer (volume/gain/ALC/HPF/NS/AGC) config page backend.
+	$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/www/x/json-audio-mixer.cgi \
+		$(TARGET_DIR)/var/www/x/json-audio-mixer.cgi
+	# SD motion-clip browser (rmr's own clip storage).
+	$(INSTALL) -D -m 0644 $(THINGINO_RAPTOR_PKGDIR)/files/www/recordings.html \
+		$(TARGET_DIR)/var/www/recordings.html
+	$(INSTALL) -D -m 0644 $(THINGINO_RAPTOR_PKGDIR)/files/www/a/recordings.js \
+		$(TARGET_DIR)/var/www/a/recordings.js
+	$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/www/x/json-recordings.cgi \
+		$(TARGET_DIR)/var/www/x/json-recordings.cgi
 
 	# WebUI plugin (streamer pages, audio, save/restart CGIs)
 	$(INSTALL) -D -m 0644 $(THINGINO_RAPTOR_PKGDIR)/files/raptor.webui.json \
@@ -212,6 +225,8 @@ define THINGINO_RAPTOR_INSTALL_TARGET_CMDS
 		$(TARGET_DIR)/var/www/a/streamer-image.js
 	$(INSTALL) -D -m 0644 $(THINGINO_RAPTOR_PKGDIR)/files/www/a/audio.js \
 		$(TARGET_DIR)/var/www/a/audio.js
+	$(INSTALL) -D -m 0644 $(THINGINO_RAPTOR_PKGDIR)/files/www/a/raptor-nav-patches.js \
+		$(TARGET_DIR)/var/www/a/raptor-nav-patches.js
 	$(INSTALL) -D -m 0644 $(THINGINO_RAPTOR_PKGDIR)/files/www/a/tool-timelapse.js \
 		$(TARGET_DIR)/var/www/a/tool-timelapse.js
 	$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/www/x/json-config-save.cgi \
@@ -271,6 +286,34 @@ define THINGINO_RAPTOR_INSTALL_TARGET_CMDS
 	if [ "$(BR2_PACKAGE_THINGINO_ONVIF)" = "y" ]; then \
 		$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/S96onvif_discovery \
 			$(TARGET_DIR)/etc/init.d/S96onvif_discovery; \
+	fi
+
+	# Mic/speaker mixer settings that raptorctl itself never persists
+	# (volume/gain/ALC/HPF/NS/AGC) - reapplied from thingino.json once rad
+	# comes up, since a restart otherwise silently drops back to defaults.
+	if [ "$(BR2_PACKAGE_THINGINO_RAPTOR_RAD)" = "y" ]; then \
+		$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/raptor-audio-mixer-apply \
+			$(TARGET_DIR)/usr/sbin/raptor-audio-mixer-apply; \
+		$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/S33raptor-audio-mixer \
+			$(TARGET_DIR)/etc/init.d/S33raptor-audio-mixer; \
+	fi
+
+	# Shared SD-recording trigger/watch: motion and audio-alarm both call
+	# petcam-record-trigger to start+extend an rmr motion clip; this loop
+	# stops it once nothing has extended the deadline for a while.
+	if [ "$(BR2_PACKAGE_THINGINO_RAPTOR_RMR)" = "y" ]; then \
+		$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/petcam-record-trigger \
+			$(TARGET_DIR)/usr/sbin/petcam-record-trigger; \
+		$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/petcam-record-watch \
+			$(TARGET_DIR)/usr/sbin/petcam-record-watch; \
+		$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/S60petcam-record-watch \
+			$(TARGET_DIR)/etc/init.d/S60petcam-record-watch; \
+		$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/S30petcam-record-conf \
+			$(TARGET_DIR)/etc/init.d/S30petcam-record-conf; \
+		$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/petcam-video-link \
+			$(TARGET_DIR)/usr/sbin/petcam-video-link; \
+		$(INSTALL) -D -m 0755 $(THINGINO_RAPTOR_PKGDIR)/files/www/x/video-link.cgi \
+			$(TARGET_DIR)/var/www/x/video-link.cgi; \
 	fi
 
 	# Motion -> send2 bridge. RMD has no on_motion script hook, so a

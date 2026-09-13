@@ -1,0 +1,20 @@
+# Apache vhost serving the CA root for client devices to install as a
+# trusted authority - only reachable inside the VPN, since ListenAddress
+# below should be this server's VPN-internal IP, not any public one.
+# Adjust the ListenAddress/VirtualHost address for your own VPN's address
+# range and web server (this is Apache; nginx/lighttpd/etc. all do the
+# same thing - one vhost, one directory, serving a single file).
+#
+# Most distros' default mime.types already maps .crt to the correct
+# application/x-x509-ca-cert (no explicit AddType needed) - Android and
+# browsers rely on that Content-Type to trigger their native
+# "install CA certificate" flow instead of just displaying/downloading
+# the file as plain text.
+<VirtualHost YOUR-VPN-IP:80>
+    ServerName vpn-ca.internal
+    DocumentRoot /var/www/vpn-ca
+    <Directory /var/www/vpn-ca>
+        Require all granted
+        Options -Indexes
+    </Directory>
+</VirtualHost>

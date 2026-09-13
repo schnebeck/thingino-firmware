@@ -1,0 +1,37 @@
+#!/bin/sh
+# Fires the "the VPN helper server just became reachable" actions
+# (TLS cert refresh, location ping) exactly once per down->up transition,
+# regardless of which VPN backend brought the tunnel up. Deliberately does
+# not hook into OpenVPN's --up or any WireGuard-specific mechanism: this
+# camera's VPN backend is a build-time/config choice (currently OpenVPN,
+# previously evaluated WireGuard, could change again), and none of these
+# three actions care how the route to vpn_helper.remote appeared - only
+# that it now works. A plain TCP probe on port 22 is the one check that
+# means the same thing under any backend.
+#
+# Runs every minute from cron (S54petcam-vpn-watch-cron) - a same-minute
+# reaction to a fresh connection is plenty for a cert refresh or location
+# ping, neither of which is time-critical the way the emergency-snapshot
+# path is.
+
+STATE=/run/petcam-vpn-state
+
+remote=$(jct /etc/thingino.json get vpn_helper.remote 2>/dev/null)
+[ -n "$remote" ] && [ "$remote" != "null" ] || exit 0
+
+host="${remote#*@}"
+[ -n "$host" ] || exit 0
+
+was_up=0
+[ "$(cat "$STATE" 2>/dev/null)" = "up" ] && was_up=1
+
+if echo | nc -w2 "$host" 22 >/dev/null 2>&1; then
+	if [ "$was_up" -eq 0 ]; then
+		logger -t petcam-vpn-onconnect "$host reachable, running on-connect actions"
+		/usr/sbin/petcam-tls-pull >/dev/null 2>&1 &
+		/usr/sbin/petcam-locate >/dev/null 2>&1 &
+	fi
+	echo up >"$STATE"
+else
+	echo down >"$STATE"
+fi

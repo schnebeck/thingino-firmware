@@ -56,9 +56,13 @@
                   <label for="email_password">Password</label>
                   <input type="password" class="form-control" id="email_password" name="email_password" autocomplete="current-password">
                 </p>
-                <p class="form-switch">
-                  <input type="checkbox" class="form-check-input" id="email_use_ssl" name="email_use_ssl">
-                  <label class="form-check-label" for="email_use_ssl">Use TLS/SSL</label>
+                <p>
+                  <label for="email_encryption">Encryption</label>
+                  <select class="form-select" id="email_encryption" name="email_encryption">
+                    <option value="none">None</option>
+                    <option value="starttls">STARTTLS (typically port 587)</option>
+                    <option value="ssl">Implicit TLS/SSL (typically port 465)</option>
+                  </select>
                 </p>
                 <p class="form-switch">
                   <input type="checkbox" class="form-check-input" id="email_trust_cert" name="email_trust_cert">
@@ -135,6 +139,23 @@
     </section>
   </div>
 </main>
+
+<div class="modal fade" id="email-test-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Test: email</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <pre class="terminal" id="email-test-output" style="white-space: break-spaces">(no output yet)</pre>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <footer data-app-footer></footer>
 

@@ -53,6 +53,42 @@ url_decode() {
 webrtc_user="$(get_webrtc_value username || true)"
 webrtc_pass="$(get_webrtc_value password || true)"
 
+# rwd only ever advertises ONE ICE host candidate (local_ip) and only reads
+# it at its own process startup - raptorctl config set writes the value to
+# disk but rwd never re-reads it live, confirmed by testing a set without a
+# restart. But its UDP media socket itself binds to :::<port> (confirmed via
+# netstat), i.e. every local interface, not just local_ip - so a second,
+# hand-added candidate for whichever interface rwd *isn't* currently
+# advertising is just as reachable as the real one. Duplicating the host
+# candidate line for the other active interface here means LAN and VPN
+# clients can both connect over WebRTC at once, without ever touching rwd.
+add_alt_candidates() {
+	lan_ip=$(ip -4 -o addr show wlan0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
+	vpn_ip=$(ip -4 -o addr show tun0 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
+	awk -v lan="$lan_ip" -v vpn="$vpn_ip" '
+		{
+			print $0
+			# SDP is CRLF-terminated (RFC 4566); $0 keeps the trailing \r
+			# since awk splits records on \n only - the $ anchor needs to
+			# allow for it, or every line here silently fails to match.
+			if ($0 ~ /^a=candidate:[0-9]+ [0-9]+ UDP [0-9]+ [^ ]+ [0-9]+ typ host\r?$/) {
+				n = split($0, f, " ")
+				ip = f[5]
+				other = ""
+				if (ip == lan && vpn != "") other = vpn
+				else if (ip == vpn && lan != "") other = lan
+				if (other != "") {
+					f[1] = "a=candidate:2"
+					f[5] = other
+					line = f[1]
+					for (i = 2; i <= n; i++) line = line " " f[i]
+					print line
+				}
+			}
+		}
+	'
+}
+
 if [ "${REQUEST_METHOD:-}" = "POST" ]; then
 	stream_raw="$(qs_get stream)"
 	stream="$(url_decode "${stream_raw:-0}")"
@@ -91,6 +127,7 @@ if [ "${REQUEST_METHOD:-}" = "POST" ]; then
 	sdp="$(cat "$body_file")"
 
 	if [ "$status" -ge 200 ] && [ "$status" -lt 300 ]; then
+		sdp="$(printf '%s' "$sdp" | add_alt_candidates)"
 		printf 'Status: %s\r\n' "$(status_line "$status")"
 		[ -n "$location" ] && printf 'Location: %s\r\n' "$location"
 		printf 'Content-Type: application/sdp\r\n\r\n'

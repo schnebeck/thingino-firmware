@@ -1,0 +1,54 @@
+#!/bin/sh
+# shellcheck disable=SC1091,SC3037
+# Re-applies persisted mic/speaker mixer settings to rad.
+#
+# raptorctl's own "config set"/"config save" for the [audio] section is a
+# no-op on this build (verified: setting a value away from default and
+# calling "config save" never touches /etc/raptor.conf), and it exposes no
+# way to read back ALC gain / noise-suppression level / AGC target+
+# compression at all. So thingino.json is the real source of truth for these
+# settings, written by json-audio-mixer.cgi, and this script pushes it back
+# into the running rad after every (re)start - see S33raptor-audio-mixer.
+
+THINGINO_JSON="/etc/thingino.json"
+
+get() {
+	jct "$THINGINO_JSON" get "audio_mixer.$1" 2>/dev/null
+}
+
+mic_volume=$(get mic_volume); mic_volume=${mic_volume:-80}
+mic_gain=$(get mic_gain); mic_gain=${mic_gain:-25}
+mic_alc_gain=$(get mic_alc_gain); mic_alc_gain=${mic_alc_gain:-0}
+mic_hpf_enabled=$(get mic_hpf_enabled)
+mic_ns_level=$(get mic_ns_level); mic_ns_level=${mic_ns_level:-0}
+mic_agc_enabled=$(get mic_agc_enabled)
+mic_agc_target_dbfs=$(get mic_agc_target_dbfs); mic_agc_target_dbfs=${mic_agc_target_dbfs:-0}
+mic_agc_compression_db=$(get mic_agc_compression_db); mic_agc_compression_db=${mic_agc_compression_db:-0}
+spk_volume=$(get spk_volume); spk_volume=${spk_volume:-80}
+spk_gain=$(get spk_gain); spk_gain=${spk_gain:-25}
+
+raptorctl rad set-volume "$mic_volume" >/dev/null 2>&1
+raptorctl rad set-gain "$mic_gain" >/dev/null 2>&1
+raptorctl rad set-alc-gain "$mic_alc_gain" >/dev/null 2>&1
+raptorctl rad ao-set-volume "$spk_volume" >/dev/null 2>&1
+raptorctl rad ao-set-gain "$spk_gain" >/dev/null 2>&1
+
+if [ "true" = "$mic_hpf_enabled" ]; then
+	raptorctl rad set-hpf 1 >/dev/null 2>&1
+else
+	raptorctl rad set-hpf 0 >/dev/null 2>&1
+fi
+
+if [ "$mic_ns_level" -gt 0 ] 2>/dev/null; then
+	raptorctl rad set-ns 1 "$mic_ns_level" >/dev/null 2>&1
+else
+	raptorctl rad set-ns 0 >/dev/null 2>&1
+fi
+
+if [ "true" = "$mic_agc_enabled" ]; then
+	raptorctl rad set-agc 1 "$mic_agc_target_dbfs" "$mic_agc_compression_db" >/dev/null 2>&1
+else
+	raptorctl rad set-agc 0 >/dev/null 2>&1
+fi
+
+exit 0
