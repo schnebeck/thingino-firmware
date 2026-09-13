@@ -141,6 +141,11 @@ if [ -f /etc/os-release ]; then
 	# system's* gnutls headers. Without the runtime lib's -dev package,
 	# this fails with a C compiler fatal error deep in the build instead
 	# of a clean early message - catching it here avoids that.
+	#
+	# lzo dev headers (per-distro package below): host-squashfs links
+	# against the host's own liblzo2 for LZO-compressed squashfs images,
+	# same story - fails deep in the build with a missing-header error
+	# instead of a clean pre-flight message without it.
 
 	# Check ID_LIKE for Debian-based identification first. Debian proper sets
 	# no ID_LIKE, and os-release guarantees none of these keys, so every one
@@ -152,7 +157,7 @@ if [ -f /etc/os-release ]; then
 			pkg_check_command="dpkg-query -W -f='\${Status}'"
 			pkg_install_cmd="apt-get install -y"
 			pkg_update_cmd="apt-get update"
-			packages="$default_packages build-essential ccache libcrypt-dev libgmp-dev libgnutls28-dev libncurses-dev libusb-1.0-0-dev u-boot-tools vim-tiny whiptail python3 python3-jsonschema python3-gmpy2"
+			packages="$default_packages build-essential ccache libcrypt-dev libgmp-dev libgnutls28-dev liblzo2-dev libncurses-dev libusb-1.0-0-dev u-boot-tools vim-tiny whiptail python3 python3-jsonschema python3-gmpy2"
 			;;
 		*)
 			case "${ID:-}" in
@@ -162,35 +167,35 @@ if [ -f /etc/os-release ]; then
 					pkg_check_command="dpkg-query -W -f='\${Status}'"
 					pkg_install_cmd="apt-get install -y"
 					pkg_update_cmd="apt-get update"
-					packages="$default_packages build-essential ccache libcrypt-dev libgmp-dev libgnutls28-dev libncurses-dev libusb-1.0-0-dev u-boot-tools vim-tiny whiptail python3 python3-gmpy2"
+					packages="$default_packages build-essential ccache libcrypt-dev libgmp-dev libgnutls28-dev liblzo2-dev libncurses-dev libusb-1.0-0-dev u-boot-tools vim-tiny whiptail python3 python3-gmpy2"
 					;;
 				rhel | centos | fedora)
 					echo "RedHat-based"
 					pkg_manager="rpm"
 					pkg_check_command="rpm -q --whatprovides"
 					pkg_install_cmd="dnf install -y"
-					packages="$default_packages gcc gmp-devel gnutls-devel libxcrypt-devel ncurses-devel newt libusbx-devel python3 python3-gmpy2 uboot-tools"
+					packages="$default_packages gcc gmp-devel gnutls-devel lzo-devel libxcrypt-devel ncurses-devel newt libusbx-devel python3 python3-gmpy2 uboot-tools"
 					;;
 				arch)
 					echo "Arch-based"
 					pkg_manager="pacman"
 					pkg_check_command="pacman -Q"
 					pkg_install_cmd="pacman -S --noconfirm"
-					packages="$default_packages base-devel gnutls libxcrypt libnewt ncurses python python-gmpy2 uboot-tools"
+					packages="$default_packages base-devel gnutls lzo libxcrypt libnewt ncurses python python-gmpy2 uboot-tools"
 					;;
 				alpine)
 					echo "Alpine Linux"
 					pkg_manager="apk"
 					pkg_check_command="apk info -e"
 					pkg_install_cmd="apk add"
-					packages="$default_packages bash build-base findutils gmp-dev gnutls-dev grep libusb-dev ncurses-dev newt py3-gmpy2 python3 uboot-tools"
+					packages="$default_packages bash build-base findutils gmp-dev gnutls-dev lzo-dev grep libusb-dev ncurses-dev newt py3-gmpy2 python3 uboot-tools"
 					;;
 				opensuse*)
 					echo "OpenSUSE Tumbleweed"
 					pkg_manager="zypper"
 					pkg_check_command="zypper search -i"
 					pkg_install_cmd="zypper install -y"
-					packages="$default_packages gcc findutils gmp-devel grep libgnutls-devel libxcrypt-devel ncurses-devel newt libusb-1_0-devel python3 python3-gmpy2 u-boot-tools"
+					packages="$default_packages gcc findutils gmp-devel grep libgnutls-devel liblzo2-devel libxcrypt-devel ncurses-devel newt libusb-1_0-devel python3 python3-gmpy2 u-boot-tools"
 					;;
 				*)
 					echo "Unsupported OS: ${ID:-unknown}"
