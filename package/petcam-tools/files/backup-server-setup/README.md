@@ -21,7 +21,8 @@ one server or one VPN backend:
   running there.
 - Outbound HTTPS access from this host (needed for the geolocation
   lookup, and for issuing/renewing the TLS certificate if you use the
-  internal-CA approach below - see `docs` in this repo, or use your own
+  internal-CA approach below - see
+  [`ADMIN.md`](../../../../ADMIN.md) for a worked real-world example, or use your own
   cert source).
 - A little disk space for off-site backups. The receive script caps total
   usage at 2GB by default (oldest files deleted first) - raise
