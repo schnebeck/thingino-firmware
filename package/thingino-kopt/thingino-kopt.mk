@@ -88,7 +88,11 @@ endif
 ifeq ($(BR2_PACKAGE_THINGINO_KOPT_MMC0),y)
 define THINGINO_KOPT_LINUX_CONFIG_FIXUPS_MMC0
 	$(call KCONFIG_ENABLE_OPT,CONFIG_JZMMC_V12_MMC0)
-	$(call KCONFIG_SET_OPT,CONFIG_MMC0_MAX_FREQ,48000000)
+	# 24MHz rather than the SD High-Speed ceiling (50MHz, 48MHz here) -
+	# meaningfully more tolerant of a marginal card/slot contact (longer
+	# traces, worn contacts, cheap readers) at a transfer-speed cost
+	# clip/snapshot recording workloads don't come close to needing.
+	$(call KCONFIG_SET_OPT,CONFIG_MMC0_MAX_FREQ,24000000)
 endef
 endif
 ifeq ($(BR2_PACKAGE_THINGINO_KOPT_MMC0_1BIT),y)

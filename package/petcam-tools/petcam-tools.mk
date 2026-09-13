@@ -85,4 +85,18 @@ define PETCAM_TOOLS_INSTALL_WWW_CMDS
 endef
 endif
 
+# SD card init robustness: this camera's MMC0 contact is marginal enough
+# to reliably hit -ETIMEDOUT during mmc_sd_init_card() (see ADMIN.md for
+# the investigation). CONFIG_MMC0_MAX_FREQ is a separate, deliberately
+# shared fixup in thingino-kopt.mk (Buildroot's per-package fixup pass
+# runs packages in a fixed order regardless of which package defines the
+# hook, so a petcam-local override here would just get raced and lost -
+# verified empirically). CONFIG_MMC_PARANOID_SD_INIT isn't touched by
+# any other package, so it's safe to set from here: retries
+# mmc_sd_init_card() up to 5 times instead of giving up after 1, for the
+# case where the marginal contact only causes an occasional bad attempt.
+define PETCAM_TOOLS_LINUX_CONFIG_FIXUPS
+	$(call KCONFIG_ENABLE_OPT,CONFIG_MMC_PARANOID_SD_INIT)
+endef
+
 $(eval $(generic-package))
