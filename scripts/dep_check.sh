@@ -132,6 +132,16 @@ if [ -f /etc/os-release ]; then
 	# Common packages across all distros
 	default_packages="autoconf bc bison cpio cmake curl dialog file flex gawk git m4 make mtools nano parted patch perl rsync swig unzip wget ripgrep shfmt nodejs npm"
 
+	# gnutls dev headers (per-distro package below): host-uboot-tools'
+	# tools-only build compiles mkeficapsule.c unconditionally, which
+	# #includes gnutls/gnutls.h regardless of whether
+	# BR2_TARGET_UBOOT_NEEDS_GNUTLS is set - that Buildroot symbol only
+	# gates host-gnutls as a *Buildroot-built* dependency for uboot
+	# itself, it doesn't stop this file from trying to use the *host
+	# system's* gnutls headers. Without the runtime lib's -dev package,
+	# this fails with a C compiler fatal error deep in the build instead
+	# of a clean early message - catching it here avoids that.
+
 	# Check ID_LIKE for Debian-based identification first. Debian proper sets
 	# no ID_LIKE, and os-release guarantees none of these keys, so every one
 	# of them is defaulted: under set -u a bare expansion aborts the check.
@@ -142,7 +152,7 @@ if [ -f /etc/os-release ]; then
 			pkg_check_command="dpkg-query -W -f='\${Status}'"
 			pkg_install_cmd="apt-get install -y"
 			pkg_update_cmd="apt-get update"
-			packages="$default_packages build-essential ccache libcrypt-dev libgmp-dev libncurses-dev libusb-1.0-0-dev u-boot-tools vim-tiny whiptail python3 python3-jsonschema python3-gmpy2"
+			packages="$default_packages build-essential ccache libcrypt-dev libgmp-dev libgnutls28-dev libncurses-dev libusb-1.0-0-dev u-boot-tools vim-tiny whiptail python3 python3-jsonschema python3-gmpy2"
 			;;
 		*)
 			case "${ID:-}" in
@@ -152,35 +162,35 @@ if [ -f /etc/os-release ]; then
 					pkg_check_command="dpkg-query -W -f='\${Status}'"
 					pkg_install_cmd="apt-get install -y"
 					pkg_update_cmd="apt-get update"
-					packages="$default_packages build-essential ccache libcrypt-dev libgmp-dev libncurses-dev libusb-1.0-0-dev u-boot-tools vim-tiny whiptail python3 python3-gmpy2"
+					packages="$default_packages build-essential ccache libcrypt-dev libgmp-dev libgnutls28-dev libncurses-dev libusb-1.0-0-dev u-boot-tools vim-tiny whiptail python3 python3-gmpy2"
 					;;
 				rhel | centos | fedora)
 					echo "RedHat-based"
 					pkg_manager="rpm"
 					pkg_check_command="rpm -q --whatprovides"
 					pkg_install_cmd="dnf install -y"
-					packages="$default_packages gcc gmp-devel libxcrypt-devel ncurses-devel newt libusbx-devel python3 python3-gmpy2 uboot-tools"
+					packages="$default_packages gcc gmp-devel gnutls-devel libxcrypt-devel ncurses-devel newt libusbx-devel python3 python3-gmpy2 uboot-tools"
 					;;
 				arch)
 					echo "Arch-based"
 					pkg_manager="pacman"
 					pkg_check_command="pacman -Q"
 					pkg_install_cmd="pacman -S --noconfirm"
-					packages="$default_packages base-devel libxcrypt libnewt ncurses python python-gmpy2 uboot-tools"
+					packages="$default_packages base-devel gnutls libxcrypt libnewt ncurses python python-gmpy2 uboot-tools"
 					;;
 				alpine)
 					echo "Alpine Linux"
 					pkg_manager="apk"
 					pkg_check_command="apk info -e"
 					pkg_install_cmd="apk add"
-					packages="$default_packages bash build-base findutils gmp-dev grep libusb-dev ncurses-dev newt py3-gmpy2 python3 uboot-tools"
+					packages="$default_packages bash build-base findutils gmp-dev gnutls-dev grep libusb-dev ncurses-dev newt py3-gmpy2 python3 uboot-tools"
 					;;
 				opensuse*)
 					echo "OpenSUSE Tumbleweed"
 					pkg_manager="zypper"
 					pkg_check_command="zypper search -i"
 					pkg_install_cmd="zypper install -y"
-					packages="$default_packages gcc findutils gmp-devel grep libxcrypt-devel ncurses-devel newt libusb-1_0-devel python3 python3-gmpy2 u-boot-tools"
+					packages="$default_packages gcc findutils gmp-devel grep libgnutls-devel libxcrypt-devel ncurses-devel newt libusb-1_0-devel python3 python3-gmpy2 u-boot-tools"
 					;;
 				*)
 					echo "Unsupported OS: ${ID:-unknown}"
