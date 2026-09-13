@@ -43,10 +43,15 @@ BR2_PACKAGE_THINGINO_KOPT_MMC0_PB_4BIT=y
 BR2_PACKAGE_THINGINO_RAPTOR_CONF_WEBRTC_AUDIO_MODE_PCMU=y
 BR2_PACKAGE_THINGINO_UHTTPD_TLS_MBEDTLS=y
 # core.fragment force-sets BR2_PACKAGE_THINGINO_VPN_WIREGUARD=y; that
-# symbol is one member of a Kconfig "choice" (VPN Selection), so a plain
-# "is not set" for just that member doesn't reliably win against an
-# explicit =y from an earlier fragment - select the actual choice value
-# we want instead, which Kconfig enforces as mutually exclusive.
+# symbol is one member of a Kconfig "choice" (VPN Selection: None /
+# WireGuard / ZeroTier-One / Tailscale - see package/thingino-vpn/Config.in),
+# so a plain "is not set" for just that member doesn't reliably win
+# against an explicit =y from an earlier fragment - select the actual
+# choice value we want instead, which Kconfig enforces as mutually
+# exclusive. "None" is correct here, not a placeholder: this camera's
+# VPN is OpenVPN (BR2_PACKAGE_OPENVPN below), which isn't a member of
+# this choice at all - thingino-openvpn is a standalone override package
+# (same pattern as thingino-wireguard-tools) outside this menu.
 BR2_PACKAGE_THINGINO_VPN_NONE=y
 BR2_PACKAGE_WIFI=y
 BR2_PACKAGE_WIFI_RTL8733BU=y
