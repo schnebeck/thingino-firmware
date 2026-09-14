@@ -2,25 +2,25 @@
 # Treat dispense cycle for the petcam.
 #
 # Timeline (4s total):
-#   t=0..2s   Ruehrwerk (agitator stepper) dreht CW
-#   t=1s      DC-Auswurf an (active-low)
-#   t=2..4s   Ruehrwerk dreht CCW
-#   DC-Auswurf aus, sobald der Sensor eine Umdrehung meldet (unabhaengig
-#   vom Ruehrwerk-Timing, mit Sicherheits-Timeout)
+#   t=0..2s   agitator stepper turns CW
+#   t=1s      DC dispenser on (active-low)
+#   t=2..4s   agitator turns CCW
+#   DC dispenser off as soon as the stop sensor reports a full stroke
+#   (independent of the agitator timing, with a safety timeout)
 
 STEPPER=/usr/sbin/stepper
 GPIO_DC=57
 GPIO_SENSE=54
 GPIO_SPARE=51
 
-# 1600 Halbschritte @ 800 Hz = exakt 2.0s, am Geraet als "seidenweich" verifiziert
+# 1600 half-steps @ 800 Hz = exactly 2.0s, verified on-device as "silky smooth"
 AGITATE_STEPS=1600
 AGITATE_SPEED=800
 
 setup_gpio_dc() {
 	[ -d /sys/class/gpio/gpio$GPIO_DC ] || echo $GPIO_DC >/sys/class/gpio/export
 	echo out >/sys/class/gpio/gpio$GPIO_DC/direction 2>/dev/null
-	echo 1 >/sys/class/gpio/gpio$GPIO_DC/value # active-low: 1 = aus
+	echo 1 >/sys/class/gpio/gpio$GPIO_DC/value # active-low: 1 = off
 }
 
 setup_gpio_sense() {
@@ -49,23 +49,23 @@ now_ms() {
 
 dispense() {
 	sleep 1
-	echo "Auswurf: DC an"
-	echo 0 >/sys/class/gpio/gpio$GPIO_DC/value # active-low: 0 = an
+	echo "Dispense: DC on"
+	echo 0 >/sys/class/gpio/gpio$GPIO_DC/value # active-low: 0 = on
 	dc_on_ms=$(now_ms)
 
-	# Nocke freifahren, falls Sensor beim Einschalten schon 0 meldet
+	# Clear the cam in case the sensor already reads 0 at power-on
 	clear_ticks=0
 	while [ "$(cat /sys/class/gpio/gpio$GPIO_SENSE/value)" = "0" ] && [ $clear_ticks -lt 40 ]; do
 		usleep 25000
 		clear_ticks=$((clear_ticks + 1))
 	done
 
-	# Warten auf STOP-IRQ (GPIO_SPARE): fallende Flanke = Kolben hat den
-	# oberen Anschlag erreicht, Feder ausgeloest. Ein direkt gemessener
-	# echter Auslauf lag nie unter ~600ms nach Motorstart - ein Ereignis
-	# deutlich frueher ist ein Fehlalarm (z.B. ein beim Scharfschalten
-	# noch anliegendes/geprelltes Signal vom vorherigen Zyklus) und wird
-	# verworfen; die Wartezeit laeuft bis zum Gesamtbudget weiter.
+	# Wait for the STOP-IRQ (GPIO_SPARE): falling edge = piston reached the
+	# top stop, spring released. A directly measured genuine trip never
+	# landed under ~600ms after motor start - an event much earlier is a
+	# false trigger (e.g. a still-settling/bouncing signal from the
+	# previous cycle at arm time) and gets discarded; the wait keeps
+	# running against the overall budget.
 	budget_ms=5000
 	min_real_ms=300
 	ok=0
@@ -81,17 +81,17 @@ dispense() {
 			ok=1
 			break
 		fi
-		echo "Auswurf: verworfenes Fehlsignal nach ${elapsed}ms, warte weiter" >&2
+		echo "Dispense: discarded false signal after ${elapsed}ms, still waiting" >&2
 		usleep 10000
 	done
 
-	echo 1 >/sys/class/gpio/gpio$GPIO_DC/value # active-low: 1 = aus
+	echo 1 >/sys/class/gpio/gpio$GPIO_DC/value # active-low: 1 = off
 
 	if [ $ok -ne 1 ]; then
-		echo "Auswurf: Timeout, STOP-Signal kam nicht (nach ${elapsed}ms)" >&2
+		echo "Dispense: timeout, no STOP signal (after ${elapsed}ms)" >&2
 		return 1
 	fi
-	echo "Auswurf: fertig nach ${elapsed}ms (STOP-Signal empfangen)"
+	echo "Dispense: done after ${elapsed}ms (STOP signal received)"
 	return 0
 }
 
@@ -107,7 +107,7 @@ setup_gpio_spare
 touch /run/self-noise-active
 trap 'rm -f /run/self-noise-active' EXIT
 
-echo "Ruehrwerk: CW"
+echo "Agitator: CW"
 $STEPPER --steps $AGITATE_STEPS --speed $AGITATE_SPEED &
 stepper_cw_pid=$!
 
@@ -116,11 +116,11 @@ dispense_pid=$!
 
 wait $stepper_cw_pid
 
-echo "Ruehrwerk: CCW"
+echo "Agitator: CCW"
 $STEPPER --steps -$AGITATE_STEPS --speed $AGITATE_SPEED
 
 wait $dispense_pid
 dispense_status=$?
 
-echo "Zyklus abgeschlossen."
+echo "Cycle complete."
 exit $dispense_status
