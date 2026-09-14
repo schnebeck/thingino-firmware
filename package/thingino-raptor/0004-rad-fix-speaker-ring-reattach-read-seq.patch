@@ -1,0 +1,84 @@
+--- a/rad/rad_main.c
++++ b/rad/rad_main.c
+@@ -446,8 +446,9 @@ static int rad_ctrl_handler(const char *cmd_json, char *resp_buf, int resp_buf_s
+ 		atomic_store(&ao->drain_requested, 1);
+ 
+ 		/* Hard 3s cap keeps this under the 5s default ctrl timeout */
+-		struct timespec deadline;
+-		clock_gettime(CLOCK_REALTIME, &deadline);
++		struct timespec wait_start;
++		clock_gettime(CLOCK_REALTIME, &wait_start);
++		struct timespec deadline = wait_start;
+ 		deadline.tv_sec += 3;
+ 		int rc = 0;
+ 		while (!ao->drain_done && rc != ETIMEDOUT)
+@@ -457,9 +458,32 @@ static int rad_ctrl_handler(const char *cmd_json, char *resp_buf, int resp_buf_s
+ 			atomic_store(&ao->drain_requested, 0);
+ 		pthread_mutex_unlock(&ao->drain_mtx);
+ 
+-		if (!done)
+-			return rss_ctrl_resp_error(resp_buf, resp_buf_size, "drain timeout");
+-		return rss_ctrl_resp_ok(resp_buf, resp_buf_size);
++		/* How long this call actually blocked, measured entirely on-device
++		 * (clock_gettime, no network/TLS/CGI-spawn overhead mixed in). A
++		 * caller trying to tell "ring was already empty" apart from "had
++		 * to wait for real audio" needs this, not its own round-trip
++		 * timing - that includes TLS handshake and CGI process spawn
++		 * cost, which alone measured 450-980ms in practice, comfortably
++		 * overlapping the few-hundred-ms waits an actually-idle ring
++		 * would need to distinguish from a busy one. */
++		struct timespec wait_end;
++		clock_gettime(CLOCK_REALTIME, &wait_end);
++		long waited_ms = (wait_end.tv_sec - wait_start.tv_sec) * 1000 +
++				 (wait_end.tv_nsec - wait_start.tv_nsec) / 1000000;
++		if (waited_ms < 0)
++			waited_ms = 0;
++
++		if (!done) {
++			cJSON *r = cJSON_CreateObject();
++			cJSON_AddStringToObject(r, "status", "error");
++			cJSON_AddStringToObject(r, "message", "drain timeout");
++			cJSON_AddNumberToObject(r, "waited_ms", (double)waited_ms);
++			return rss_ctrl_resp_json(resp_buf, resp_buf_size, r);
++		}
++		cJSON *r = cJSON_CreateObject();
++		cJSON_AddStringToObject(r, "status", "ok");
++		cJSON_AddNumberToObject(r, "waited_ms", (double)waited_ms);
++		return rss_ctrl_resp_json(resp_buf, resp_buf_size, r);
+ 	}
+ 
+ 	if (strcmp(cmd, "ao-set-sample-rate") == 0) {
+@@ -933,8 +957,31 @@ static void *ao_playback_thread(void *arg)
+ 			break;
+ 		}
+ 
+-		uint64_t read_seq = 0;
+-		uint64_t last_write_seq = atomic_load(&hdr->write_seq);
++		/* A ring that already holds >= slot_count frames (i.e. this is a
++		 * reattach to a ring from an earlier session, not a brand new
++		 * one) will overflow on the very first read if we start at 0 -
++		 * rss_ring_read() detects the consumer is hopelessly behind and
++		 * jumps read_seq to the current write_seq anyway, but only
++		 * after reporting RSS_EOVERFLOW and leaving read_seq at its
++		 * stale value in the meantime. That guaranteed-to-fail first
++		 * read spams a EOVERFLOW debug line on every idle reattach
++		 * (every ~500ms while nothing is talking), and briefly leaves
++		 * read_seq desynced from the ring's real position while a
++		 * concurrent ao-drain request could sample it.
++		 *
++		 * Skip straight past write_seq in that case, not to it: seq ==
++		 * write_seq is the last frame this same reader already played
++		 * before its previous idle-close (rss_ring_read treats == as
++		 * "unread" so a genuinely fresh consumer doesn't miss the final
++		 * frame of a finite stream, but a reattaching one has already
++		 * seen it), and reading it again every cycle was audible as
++		 * repeated stale audio plus kept idle_count from ever reaching
++		 * zero cleanly. A genuinely fresh ring (write_seq < slot_count)
++		 * still starts at 0 so its early frames aren't skipped.
++		 */
++		uint64_t wseq_now = atomic_load(&hdr->write_seq);
++		uint64_t read_seq = (wseq_now >= hdr->slot_count) ? wseq_now + 1 : 0;
++		uint64_t last_write_seq = wseq_now;
+ 		int idle_count = 0;
+ 		RSS_DEBUG("speaker ring connected");
+ 
