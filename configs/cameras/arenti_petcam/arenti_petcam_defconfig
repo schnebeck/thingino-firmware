@@ -47,6 +47,14 @@ BR2_PACKAGE_THINGINO_KOPT_ADC=y
 BR2_PACKAGE_THINGINO_KOPT_JZ_MAC_V13=y
 BR2_PACKAGE_THINGINO_KOPT_MMC0=y
 BR2_PACKAGE_THINGINO_KOPT_MMC0_PB_4BIT=y
+BR2_PACKAGE_THINGINO_RAPTOR_CONF_STREAM1_HEIGHT="480"
+# sc301iot's native resolution is 2048x1536 (4:3, see /proc/jz/sensor/sensor0).
+# stream0 (Main) inherits that automatically, but stream1 (Sub) falls back
+# to the shared cross-camera default of 640x360 (16:9) when unset, which
+# the ISP scales the 4:3 sensor frame into without preserving aspect -
+# visibly squishing the sub streams vertically. Pin it to a 4:3 size
+# instead so it matches what the sensor actually sees.
+BR2_PACKAGE_THINGINO_RAPTOR_CONF_STREAM1_WIDTH="640"
 BR2_PACKAGE_THINGINO_RAPTOR_CONF_WEBRTC_AUDIO_MODE_PCMU=y
 BR2_PACKAGE_THINGINO_UHTTPD_TLS_MBEDTLS=y
 # core.fragment force-sets BR2_PACKAGE_THINGINO_VPN_WIREGUARD=y; that
