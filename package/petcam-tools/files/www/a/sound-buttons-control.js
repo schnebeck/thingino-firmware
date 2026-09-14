@@ -40,7 +40,7 @@
       el.title = btn.tooltip || btn.label || "Play sound";
       el.innerHTML =
         '<i class="bi bi-volume-up-fill"></i> ' +
-        (btn.label ? '<span class="d-none d-md-inline">' + btn.label + "</span>" : "");
+        (btn.label ? "<span>" + btn.label + "</span>" : "");
       el.addEventListener("click", () => playSlot(el, slot));
       bar.appendChild(el);
       added++;
