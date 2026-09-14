@@ -95,8 +95,31 @@ endif
 # any other package, so it's safe to set from here: retries
 # mmc_sd_init_card() up to 5 times instead of giving up after 1, for the
 # case where the marginal contact only causes an occasional bad attempt.
+# thingino-kopt's FAT/VFAT fixup only applies to xburst2 boards (SD-card
+# filesystem support isn't assumed for xburst1 cameras in general); this
+# camera actually has an SD card slot, so enable it here instead of
+# touching the shared, cross-camera thingino-kopt.mk.
 define PETCAM_TOOLS_LINUX_CONFIG_FIXUPS
 	$(call KCONFIG_ENABLE_OPT,CONFIG_MMC_PARANOID_SD_INIT)
+	$(call KCONFIG_ENABLE_OPT,CONFIG_FAT_FS)
+	$(call KCONFIG_ENABLE_OPT,CONFIG_VFAT_FS)
+	$(call KCONFIG_SET_OPT,CONFIG_FAT_DEFAULT_CODEPAGE,437)
+	$(call KCONFIG_SET_OPT,CONFIG_FAT_DEFAULT_IOCHARSET,"iso8859-1")
 endef
+
+# TEMPORARY: pin U-Boot to a known-good pre-built binary instead of the
+# live source build - see board/ingenic/xburst1/blobs/README.md for the
+# full investigation (kernel source, kernel Kconfig, and host toolchain
+# were all independently ruled out; the regression is in the U-Boot
+# source itself, at a point that's no longer reproducible). Remove this
+# override once the real cause is found upstream, or once a fresh U-Boot
+# build is manually reverified against the SD card. petcam-tools is only
+# ever enabled for arenti_petcam (see this camera's own defconfig), so
+# no further guard is needed here.
+define PETCAM_TOOLS_OVERRIDE_UBOOT_BLOB
+	cp -f $(BR2_EXTERNAL_THINGINO_PATH)/board/ingenic/xburst1/blobs/arenti_petcam-uboot-known-good-2026-09-10.bin \
+		$(BINARIES_DIR)/u-boot-with-tpl-lzma.bin
+endef
+UBOOT_POST_INSTALL_IMAGES_HOOKS += PETCAM_TOOLS_OVERRIDE_UBOOT_BLOB
 
 $(eval $(generic-package))
