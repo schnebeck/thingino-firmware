@@ -5,7 +5,7 @@
   "nav": [
     {
       "section": "ddSettings",
-      "position": "after:WireGuard VPN",
+      "position": "before:Reset...",
       "items": [
         {
           "label": "OpenVPN Client",

@@ -7,7 +7,7 @@
   "nav": [
     {
       "section": "ddSettings",
-      "position": "after:Audio",
+      "position": "before:Reset...",
       "items": [
         {
           "label": "Audio Alarm",
