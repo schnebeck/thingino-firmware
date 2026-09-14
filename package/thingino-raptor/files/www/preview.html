@@ -110,6 +110,7 @@
 <script>
   (function () {
     const video = document.getElementById("raptor-webrtc-video");
+    const videoWrap = document.querySelector(".raptor-video-wrap");
     const connectButton = document.getElementById("webrtc-connect");
     const muteButton = document.getElementById("webrtc-mute");
     const talkButton = document.getElementById("webrtc-talk");
@@ -133,6 +134,162 @@
     let disconnectTimer = null;
     let globalPttActive = false;
     let mjpegActive = false;
+    // Whether Sound (camera mic playback) was on right before Push-to-Talk
+    // started, so it can be restored to that exact state on release - null
+    // means no talk session is in progress.
+    let soundOnBeforeTalk = null;
+    // startTalk() awaits getUserMedia() before micStream is assigned, so
+    // its own "micStream already set" guard doesn't stop a second
+    // press/keydown landing in that gap - talkStarting is a pure "a
+    // startTalk() call is currently in flight" guard against that (kept
+    // even with the reference count below, since a full release-then-
+    // immediate-re-press can still overlap an old call's teardown with a
+    // brand new one).
+    let talkStarting = false;
+    // Reference count of presses not yet matched by a release. Fast
+    // repeated presses overlap in the browser - a second press can land
+    // before the first's async setup (getUserMedia/replaceTrack) has
+    // even finished, so treating each press/release independently races.
+    // Only the 0->1 press starts a real talk session and only the ->0
+    // release ends it; anything in between just adjusts the count.
+    let pttActiveCount = 0;
+
+    function onPttPress() {
+      pttActiveCount++;
+      if (pttActiveCount > 1) {
+        return; // overlapping press merged into the already-active session
+      }
+      startTalk();
+    }
+
+    function onPttRelease() {
+      if (pttActiveCount === 0) {
+        return; // stray release with no matching press
+      }
+      pttActiveCount--;
+      if (pttActiveCount > 0) {
+        return; // still held by an overlapping press - not a real release yet
+      }
+      stopTalk();
+    }
+
+    // The restoreSound value a still-pending restoreSoundAfterDrain()
+    // intends to apply once its timer fires - the TRUE pre-session
+    // baseline, captured once and never re-derived. cancelTalkDrain()
+    // clears the pending timer but deliberately leaves this alone: if a
+    // new press starts before the old restore ever got to run,
+    // video.muted is still stuck on whatever the mute forced it to, so
+    // re-deriving "was it on before" from video.muted at that point would
+    // read back the forced state instead of the real original one. The
+    // next session inherits this instead of resampling.
+    let pendingRestoreSound = null;
+
+    function cancelTalkDrain() {
+      if (drainWatchdog) {
+        clearTimeout(drainWatchdog);
+        drainWatchdog = null;
+      }
+      drainToken = null;
+    }
+
+    // Restores Sound a fixed span after release, instead of asking the
+    // camera when it's actually finished playing (tried first: rad's
+    // "ao-drain" control command via /x/ao-drain.cgi, which in principle
+    // gives an exact answer - see git history for that version). In
+    // practice it was unusable on this device: this camera runs a SINGLE
+    // CPU core, observed at load average 4.6+ during normal operation
+    // (`cat /proc/loadavg`; even a plain `logread` over SSH visibly used
+    // ~30% CPU on its own), and every ao-drain.cgi call is a fresh CGI
+    // process spawn competing for that one core against whatever else is
+    // running (not least the always-open SSE heartbeat connection ticking
+    // every 5s). Measured end-to-end: release-to-actual-restore gaps of
+    // 10-17 seconds, despite each call looking fast (~500-900ms) in
+    // isolation. Button press/release timing itself has no such problem -
+    // measured consistently accurate to 0-2ms against the browser's own
+    // clock, no network round trip needed to know it - so it's the more
+    // trustworthy signal to build on here.
+    //
+    // Talk is close enough to live (the camera plays audio at roughly the
+    // rate it's sent) that whatever is still unplayed at the moment of
+    // release is just the fixed tail end of the pipeline - a decode/
+    // jitter-buffer/output-latency estimate plus the network's own round
+    // trip - NOT proportional to how long the button was held (that time
+    // has already fully elapsed by release; counting it again as
+    // additional post-release wait double-counts it). The network part
+    // isn't a constant - it depends on where this particular browser is
+    // (same LAN, a different WiFi hop, over the VPN tunnel...), so it's
+    // read per-session from the live WebRTC connection itself
+    // (RTCPeerConnection.getStats()'s selected candidate-pair
+    // currentRoundTripTime) instead of a fixed guess. That call is local
+    // to the browser - it reports stats already being tracked for the
+    // connection, no request to the camera - so it doesn't reintroduce
+    // the CPU-contention problem ao-drain.cgi had.
+    // Calibrated from real-world feedback, not a technical measurement:
+    // at ~500-700ms margin, Sound came back audibly ~1.5-2s early - and
+    // that span matches the lag the same viewer sees between pressing a
+    // Pan button and the camera actually appearing to move on screen, so
+    // this isn't specific to the audio ring/decode path, it's this
+    // camera's general WebRTC pipeline latency under its typical load.
+    // No live signal for this part (that's what ao-drain.cgi tried to
+    // provide and couldn't, under CPU contention - see above), so it's a
+    // fixed constant based on that report: previous margin + the ~1.5-2s
+    // shortfall.
+    const TALK_DRAIN_JITTER_MS = 400; // decode/jitter-buffer/pipeline output - not network, no live signal for this part
+    const TALK_DRAIN_DEFAULT_RTT_MS = 100; // used only if getStats() has no candidate-pair RTT yet
+    const TALK_DRAIN_MIN_MS = 500;
+    const TALK_DRAIN_MAX_MS = 10000;
+
+    let drainWatchdog = null;
+    let drainToken = null;
+
+    async function getNetworkRttMs() {
+      if (!pc) return null;
+      try {
+        const stats = await pc.getStats();
+        for (const report of stats.values()) {
+          if (report.type === "candidate-pair" && report.state === "succeeded" && report.nominated) {
+            if (typeof report.currentRoundTripTime === "number") {
+              return report.currentRoundTripTime * 1000; // spec reports seconds
+            }
+          }
+        }
+      } catch (error) {
+        // best effort - fall back to the default
+      }
+      return null;
+    }
+
+    function forceRestore(token, restoreSound) {
+      if (drainToken !== token) {
+        return; // superseded by a newer talk session, which owns the restore
+      }
+      drainWatchdog = null;
+      drainToken = null;
+      pendingRestoreSound = null;
+      video.muted = !restoreSound;
+      setSoundButton(restoreSound);
+      muteButton.disabled = false;
+    }
+
+    async function restoreSoundAfterDrain(restoreSound) {
+      cancelTalkDrain();
+      const token = {};
+      drainToken = token;
+      pendingRestoreSound = restoreSound;
+      const rttMs = await getNetworkRttMs();
+      if (drainToken !== token) {
+        return; // superseded while awaiting getStats()
+      }
+      // This timer starts NOW, at release - the time already spent from
+      // press to release has already fully elapsed by this point, it
+      // isn't still ahead of us, so it plays no part in the delay below.
+      // Live streaming means the tail still unplayed at release is just
+      // the roughly-fixed margin here, independent of how long the
+      // button was held.
+      const margin = TALK_DRAIN_JITTER_MS + (rttMs !== null ? rttMs : TALK_DRAIN_DEFAULT_RTT_MS);
+      const delay = Math.max(TALK_DRAIN_MIN_MS, Math.min(TALK_DRAIN_MAX_MS, margin));
+      drainWatchdog = setTimeout(() => forceRestore(token, restoreSound), delay);
+    }
 
     function stopMjpeg() {
       if (!mjpegActive) {
@@ -144,6 +301,7 @@
       video.style.display = "";
       mjpegButton.classList.remove("btn-success");
       mjpegButton.classList.add("btn-outline-secondary");
+      resetAspect();
     }
 
     async function startMjpeg(auto) {
@@ -163,6 +321,26 @@
     function setStatus(message) {
       status.textContent = message;
     }
+
+    // The wrap defaults to 16:9 in CSS, but stream0 (Main) falls back to
+    // the sensor's native resolution when unconfigured, which isn't
+    // necessarily 16:9 (e.g. 4:3 sensors) - fixing the box at 16:9
+    // pillarboxes those. Match it to whatever is actually playing instead.
+    function applyAspectFromDimensions(width, height) {
+      if (!videoWrap || !width || !height) return;
+      videoWrap.style.aspectRatio = `${width} / ${height}`;
+    }
+
+    function resetAspect() {
+      if (videoWrap) videoWrap.style.aspectRatio = "";
+    }
+
+    video.addEventListener("resize", () => {
+      applyAspectFromDimensions(video.videoWidth, video.videoHeight);
+    });
+    mjpegImg.addEventListener("load", () => {
+      applyAspectFromDimensions(mjpegImg.naturalWidth, mjpegImg.naturalHeight);
+    });
 
     // Applies the picked Quality option's bitrate/fps to the underlying
     // encoder channel right now, on demand - the channel itself is always
@@ -256,6 +434,13 @@
       talkButton.classList.remove("btn-danger");
       talkButton.classList.add("btn-outline-secondary");
       globalPttActive = false;
+      if (soundOnBeforeTalk !== null) {
+        const restoreSound = soundOnBeforeTalk;
+        soundOnBeforeTalk = null;
+        restoreSoundAfterDrain(restoreSound);
+      } else {
+        muteButton.disabled = false;
+      }
       if (pc) {
         setStatus("Connected");
       }
@@ -267,6 +452,8 @@
         disconnectTimer = null;
       }
       stopTalk();
+      pttActiveCount = 0; // hard reset - a disconnect isn't a real release to reconcile later
+      cancelTalkDrain();
       if (sessionResource) {
         try {
           await fetch(`/x/webrtc-whip.cgi?session=${encodeURIComponent(sessionResource)}`, {
@@ -289,6 +476,7 @@
       setConnectedUi(false);
       setStatus(reason);
       isConnecting = false;
+      resetAspect();
     }
 
     async function startWebrtc() {
@@ -516,9 +704,24 @@
     }
 
     async function startTalk() {
-      if (!pc || micStream) {
+      if (!pc || micStream || talkStarting) {
         return;
       }
+      talkStarting = true;
+      const inheritedRestoreTarget = pendingRestoreSound;
+      pendingRestoreSound = null;
+      cancelTalkDrain();
+      if (soundOnBeforeTalk === null) {
+        // Inherit a still-pending restore target from a just-cancelled
+        // previous session rather than re-deriving from video.muted,
+        // which is still forced muted at this point and would read back
+        // as "off" regardless of what it truly was before all of this.
+        soundOnBeforeTalk = inheritedRestoreTarget !== null ? inheritedRestoreTarget : !video.muted;
+      }
+      video.muted = true;
+      setSoundButton(false);
+      muteButton.disabled = true;
+      let errored = false;
       try {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         const track = micStream.getAudioTracks()[0];
@@ -536,6 +739,17 @@
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         setStatus(`Mic failed: ${message}`);
+        errored = true;
+      } finally {
+        talkStarting = false;
+      }
+      // Covers both: setup failed, or the button (and every overlapping
+      // press merged into this session) was already released while
+      // getUserMedia()/replaceTrack() was still pending - either way
+      // there's no valid talk session to keep, so tear down through the
+      // normal path (stops the mic track, restores Sound via the
+      // already-correct soundOnBeforeTalk instead of leaving it stuck off).
+      if (errored || pttActiveCount === 0) {
         stopTalk();
       }
     }
@@ -576,27 +790,27 @@
 
     talkButton.addEventListener("pointerdown", (event) => {
       event.preventDefault();
-      startTalk();
+      onPttPress();
     });
     talkButton.addEventListener("pointerup", () => {
-      stopTalk();
+      onPttRelease();
     });
     talkButton.addEventListener("pointerleave", () => {
-      stopTalk();
+      onPttRelease();
     });
     talkButton.addEventListener("pointercancel", () => {
-      stopTalk();
+      onPttRelease();
     });
     talkButton.addEventListener("keydown", (event) => {
       if (event.code === "Space" || event.code === "Enter") {
         event.preventDefault();
-        startTalk();
+        onPttPress();
       }
     });
     talkButton.addEventListener("keyup", (event) => {
       if (event.code === "Space" || event.code === "Enter") {
         event.preventDefault();
-        stopTalk();
+        onPttRelease();
       }
     });
 
@@ -620,7 +834,7 @@
       }
       event.preventDefault();
       globalPttActive = true;
-      startTalk();
+      onPttPress();
     });
 
     document.addEventListener("keyup", (event) => {
@@ -632,7 +846,7 @@
       }
       event.preventDefault();
       globalPttActive = false;
-      stopTalk();
+      onPttRelease();
     });
 
     streamSelect.value = defaultStream === "1" ? "1" : "0";
