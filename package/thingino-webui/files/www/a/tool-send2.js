@@ -112,25 +112,6 @@
     }
   }
 
-  const audioAlarmEndpoint = "/x/json-audio-alarm.cgi";
-
-  async function updateAudioAlarmValue(service, value) {
-    try {
-      const payload = { audio_alarm: { [service]: value } };
-      const response = await fetch(audioAlarmEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) throw new Error("Failed to update");
-      const result = await response.json();
-      if (result.error) throw new Error(result.error.message);
-    } catch (err) {
-      console.error(`Failed to update audio alarm ${service}:`, err);
-      showAlert("danger", `Failed to update ${service}: ${err.message || err}`);
-    }
-  }
-
   async function loadConfig() {
     showBusy("Loading configuration...");
     try {
@@ -262,26 +243,6 @@
         }
         if (speakerLoopInput) speakerLoopInput.value = data.speaker.loop ?? 1;
       }
-
-      try {
-        const aaResponse = await fetch(audioAlarmEndpoint, {
-          headers: { Accept: "application/json" },
-        });
-        if (aaResponse.ok) {
-          const aaData = await aaResponse.json();
-          const audioAlarm = aaData.audio_alarm || {};
-          services.forEach((service) => {
-            const checkbox = $(`#audio_send2${service}`);
-            if (checkbox) {
-              checkbox.checked =
-                audioAlarm[`send2${service}`] === true ||
-                audioAlarm[`send2${service}`] === "true";
-            }
-          });
-        }
-      } catch (err) {
-        console.error("Failed to load audio alarm config:", err);
-      }
     } catch (err) {
       console.error("Failed to load config:", err);
       showAlert(
@@ -388,15 +349,6 @@
       const service = ev.target.dataset.service;
       const value = ev.target.checked;
       updateMotionValue(service, value);
-    });
-  });
-
-  // Handle audio alarm service toggles
-  $$(".audio-sendto").forEach((checkbox) => {
-    checkbox.addEventListener("change", (ev) => {
-      const service = ev.target.dataset.service;
-      const value = ev.target.checked;
-      updateAudioAlarmValue(service, value);
     });
   });
 

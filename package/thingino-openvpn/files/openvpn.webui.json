@@ -5,7 +5,7 @@
   "nav": [
     {
       "section": "ddSettings",
-      "position": "before:Reset...",
+      "position": "after:Network",
       "items": [
         {
           "label": "OpenVPN Client",

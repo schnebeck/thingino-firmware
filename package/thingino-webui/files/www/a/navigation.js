@@ -71,6 +71,7 @@
       uiConfig.device && uiConfig.device.flashOperations === true;
     const settingsItems = [
       { label: "Admin profile", href: "/config-admin.html" },
+      { label: "Motion", href: "/tool-send2.html" },
     ];
 
     settingsItems.push({ label: "Network", href: "/config-network.html" });
@@ -87,7 +88,6 @@
       { label: "File manager", href: "/tool-file-manager.html" },
       { label: "Network test", href: "/tool-ping-trace.html" },
       { label: "SD card", href: "/tool-sdcard.html" },
-      { label: "Send to services", href: "/tool-send2.html" },
     ];
 
     if (flashOperationsEnabled) {

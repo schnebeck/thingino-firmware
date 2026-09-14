@@ -5,7 +5,7 @@
   "nav": [
     {
       "section": "ddTools",
-      "position": "after:Send to services",
+      "position": "after:SD card",
       "items": [
         {
           "label": "Locate",
