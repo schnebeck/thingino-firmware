@@ -4,11 +4,15 @@ PETCAM_TOOLS_SITE = $(BR2_EXTERNAL_THINGINO_PATH)/package/petcam-tools
 define PETCAM_TOOLS_BUILD_CMDS
 	$(TARGET_CC) $(TARGET_CFLAGS) -static -Os -Wall -Wextra \
 		-o $(@D)/stepper $(PETCAM_TOOLS_PKGDIR)/files/stepper.c
+	$(TARGET_CC) $(TARGET_CFLAGS) -static -Os -Wall -Wextra \
+		-o $(@D)/gpio-wait $(PETCAM_TOOLS_PKGDIR)/files/gpio-wait.c
 endef
 
 define PETCAM_TOOLS_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/stepper \
 		$(TARGET_DIR)/usr/sbin/stepper
+	$(INSTALL) -D -m 0755 $(@D)/gpio-wait \
+		$(TARGET_DIR)/usr/sbin/gpio-wait
 
 	$(INSTALL) -D -m 0755 $(PETCAM_TOOLS_PKGDIR)/files/dispense-treat-cycle \
 		$(TARGET_DIR)/usr/sbin/dispense-treat-cycle

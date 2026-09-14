@@ -18,50 +18,81 @@ AGITATE_STEPS=1600
 AGITATE_SPEED=800
 
 setup_gpio_dc() {
-    [ -d /sys/class/gpio/gpio$GPIO_DC ] || echo $GPIO_DC > /sys/class/gpio/export
-    echo out > /sys/class/gpio/gpio$GPIO_DC/direction 2>/dev/null
-    echo 1 > /sys/class/gpio/gpio$GPIO_DC/value   # active-low: 1 = aus
+	[ -d /sys/class/gpio/gpio$GPIO_DC ] || echo $GPIO_DC >/sys/class/gpio/export
+	echo out >/sys/class/gpio/gpio$GPIO_DC/direction 2>/dev/null
+	echo 1 >/sys/class/gpio/gpio$GPIO_DC/value # active-low: 1 = aus
 }
 
 setup_gpio_sense() {
-    [ -d /sys/class/gpio/gpio$GPIO_SENSE ] || echo $GPIO_SENSE > /sys/class/gpio/export
-    echo in > /sys/class/gpio/gpio$GPIO_SENSE/direction 2>/dev/null
+	[ -d /sys/class/gpio/gpio$GPIO_SENSE ] || echo $GPIO_SENSE >/sys/class/gpio/export
+	echo in >/sys/class/gpio/gpio$GPIO_SENSE/direction 2>/dev/null
 }
 
-# Vendor board table lists this as DCMOTOR-STOP-IRQ but no pulse was ever
-# observed on it here - parked as input so it can't float into an output.
+# Vendor board table lists this as DCMOTOR-STOP-IRQ, and it's a real
+# hardware interrupt in the original firmware (request_threaded_irq() in
+# strnio.ko, confirmed by disassembly): the DC motor there is switched
+# off exactly on this pin's falling edge, 20ms debounce, nothing else -
+# GPIO_SENSE ("SLOW-IRQ" in the vendor table) turned out to only latch a
+# timestamp in the original driver, not touch the motor at all. Used via
+# gpio-wait below (edge-triggered poll(), not a busy-poll loop) as the
+# authoritative stop condition instead of the coarse SENSE-polling this
+# script used before that finding.
 setup_gpio_spare() {
-    [ -d /sys/class/gpio/gpio$GPIO_SPARE ] || echo $GPIO_SPARE > /sys/class/gpio/export
-    echo in > /sys/class/gpio/gpio$GPIO_SPARE/direction 2>/dev/null
+	[ -d /sys/class/gpio/gpio$GPIO_SPARE ] || echo $GPIO_SPARE >/sys/class/gpio/export
+	echo in >/sys/class/gpio/gpio$GPIO_SPARE/direction 2>/dev/null
+}
+
+# Millisecond-resolution, from /proc/uptime (busybox date has no %N).
+now_ms() {
+	awk '{printf "%d", $1 * 1000}' /proc/uptime
 }
 
 dispense() {
-    sleep 1
-    echo "Auswurf: DC an"
-    echo 0 > /sys/class/gpio/gpio$GPIO_DC/value   # active-low: 0 = an
+	sleep 1
+	echo "Auswurf: DC an"
+	echo 0 >/sys/class/gpio/gpio$GPIO_DC/value # active-low: 0 = an
+	dc_on_ms=$(now_ms)
 
-    # Nocke freifahren, falls Sensor beim Einschalten schon 0 meldet
-    clear_ticks=0
-    while [ "$(cat /sys/class/gpio/gpio$GPIO_SENSE/value)" = "0" ] && [ $clear_ticks -lt 40 ]; do
-        usleep 25000
-        clear_ticks=$((clear_ticks + 1))
-    done
+	# Nocke freifahren, falls Sensor beim Einschalten schon 0 meldet
+	clear_ticks=0
+	while [ "$(cat /sys/class/gpio/gpio$GPIO_SENSE/value)" = "0" ] && [ $clear_ticks -lt 40 ]; do
+		usleep 25000
+		clear_ticks=$((clear_ticks + 1))
+	done
 
-    # Warten auf naechste Schaltflanke (Sensor wird 0), 5s Timeout (200*25ms)
-    run_ticks=0
-    while [ "$(cat /sys/class/gpio/gpio$GPIO_SENSE/value)" = "1" ] && [ $run_ticks -lt 200 ]; do
-        usleep 25000
-        run_ticks=$((run_ticks + 1))
-    done
+	# Warten auf STOP-IRQ (GPIO_SPARE): fallende Flanke = Kolben hat den
+	# oberen Anschlag erreicht, Feder ausgeloest. Ein direkt gemessener
+	# echter Auslauf lag nie unter ~600ms nach Motorstart - ein Ereignis
+	# deutlich frueher ist ein Fehlalarm (z.B. ein beim Scharfschalten
+	# noch anliegendes/geprelltes Signal vom vorherigen Zyklus) und wird
+	# verworfen; die Wartezeit laeuft bis zum Gesamtbudget weiter.
+	budget_ms=5000
+	min_real_ms=300
+	ok=0
+	elapsed=0
+	while true; do
+		remaining=$((budget_ms - ($(now_ms) - dc_on_ms)))
+		[ $remaining -le 0 ] && break
+		gpio-wait $GPIO_SPARE falling $remaining >/dev/null
+		wait_status=$?
+		[ $wait_status -ne 0 ] && break
+		elapsed=$(($(now_ms) - dc_on_ms))
+		if [ $elapsed -ge $min_real_ms ]; then
+			ok=1
+			break
+		fi
+		echo "Auswurf: verworfenes Fehlsignal nach ${elapsed}ms, warte weiter" >&2
+		usleep 10000
+	done
 
-    echo 1 > /sys/class/gpio/gpio$GPIO_DC/value   # active-low: 1 = aus
+	echo 1 >/sys/class/gpio/gpio$GPIO_DC/value # active-low: 1 = aus
 
-    if [ $run_ticks -ge 200 ]; then
-        echo "Auswurf: Timeout, Sensor kam nicht" >&2
-        return 1
-    fi
-    echo "Auswurf: fertig nach $((run_ticks * 25)) ms"
-    return 0
+	if [ $ok -ne 1 ]; then
+		echo "Auswurf: Timeout, STOP-Signal kam nicht (nach ${elapsed}ms)" >&2
+		return 1
+	fi
+	echo "Auswurf: fertig nach ${elapsed}ms (STOP-Signal empfangen)"
+	return 0
 }
 
 setup_gpio_dc
